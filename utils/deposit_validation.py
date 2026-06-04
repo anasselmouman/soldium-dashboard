@@ -1,4 +1,4 @@
-"""Amount validation aligned with SOLDUIM/handlers/payment.py."""
+"""Amount validation aligned with soldium-bot/handlers/payment.py."""
 from __future__ import annotations
 
 import settings

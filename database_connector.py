@@ -24,7 +24,7 @@ logger = logging.getLogger("soldium.db")
 
 # Absolute path to shared bot DB — stable regardless of process cwd.
 _DIR = os.path.dirname(os.path.abspath(__file__))
-_DEFAULT_DB = os.path.abspath(os.path.join(_DIR, "..", "SOLDUIM", "users.db"))
+_DEFAULT_DB = os.path.abspath(os.path.join(_DIR, "..", "soldium-bot", "users.db"))
 DB_PATH = os.path.abspath(os.getenv("SOLDIUM_DB_PATH", _DEFAULT_DB))
 
 # Seconds to wait on SQLITE_BUSY before failing (matches bot-side tolerance).

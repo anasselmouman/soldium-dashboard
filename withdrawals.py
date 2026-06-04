@@ -176,7 +176,7 @@ async def reject_withdrawal(
 ) -> dict[str, Any]:
     """
     Reject pending withdrawal and refund held amount atomically.
-    Mirrors SOLDUIM/database.reject_withdrawal_by_admin.
+    Mirrors soldium-bot/database.reject_withdrawal_by_admin.
     """
     withdrawal = await get_withdrawal(withdrawal_id)
     if withdrawal is None:

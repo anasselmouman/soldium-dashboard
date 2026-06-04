@@ -1,4 +1,4 @@
-"""Dashboard settings (defaults mirror SOLDUIM/config.py)."""
+"""Dashboard settings (defaults mirror soldium-bot/config.py)."""
 from __future__ import annotations
 
 import os

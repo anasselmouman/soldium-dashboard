@@ -10,9 +10,9 @@ from pathlib import Path
 from typing import Any, Iterator
 
 _DIR = Path(__file__).resolve().parent.parent
-_SOLDUIM_DIR = _DIR.parent / "SOLDUIM"
-if str(_SOLDUIM_DIR) not in sys.path:
-    sys.path.insert(0, str(_SOLDUIM_DIR))
+_BOT_DIR = _DIR.parent / "soldium-bot"
+if str(_BOT_DIR) not in sys.path:
+    sys.path.insert(0, str(_BOT_DIR))
 
 from services_catalog_loader import (  # noqa: E402
     SERVICES_JSON_PATH,

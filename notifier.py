@@ -14,7 +14,7 @@ from database_connector import get_db
 
 _BASE_DIR = Path(__file__).resolve().parent
 load_dotenv(_BASE_DIR / ".env")
-load_dotenv(_BASE_DIR.parent / "SOLDUIM" / ".env")
+load_dotenv(_BASE_DIR.parent / "soldium-bot" / ".env")
 
 logger = logging.getLogger("soldium.notifier")
 
@@ -22,7 +22,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 _API_BASE = "https://api.telegram.org/bot{token}"
 _REQUEST_TIMEOUT = aiohttp.ClientTimeout(total=15)
 
-# Matches SOLDUIM/utils/smart_notifications.py
+# Matches soldium-bot/utils/smart_notifications.py
 DISMISS_CALLBACK_PREFIX = "notify:dismiss:"
 DISMISS_BUTTON_TEXT = "✖️ إخفاء الإشعار"
 

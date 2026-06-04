@@ -157,7 +157,7 @@ async def adjust_user_balance(
     reason: str | None = None,
 ) -> dict[str, Any]:
     """
-    Atomic balance adjustment — mirrors SOLDUIM/database.update_balance.
+    Atomic balance adjustment — mirrors soldium-bot/database.update_balance.
   Positive amount credits; negative debits (and increases total_spent).
     """
     amount_money = to_float(amount_dh)

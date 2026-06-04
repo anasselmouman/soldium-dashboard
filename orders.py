@@ -261,7 +261,7 @@ async def _reverse_referral_payout_in_tx(
 
 
 async def _try_apply_referral_payout(order_id: int) -> None:
-    """Post-commit referral commission (mirrors SOLDUIM try_apply_referral_payout_for_order)."""
+    """Post-commit referral commission (mirrors soldium-bot try_apply_referral_payout_for_order)."""
     try:
         async with db_transaction() as db:
             async with db.execute(
@@ -365,7 +365,7 @@ async def _try_apply_referral_payout(order_id: int) -> None:
 async def update_order_status(order_id: int, new_status: str) -> dict[str, Any]:
     """
     Admin status change with atomic refund on canceled/refunded/failed.
-    Mirrors SOLDUIM/database.set_order_status_by_admin.
+    Mirrors soldium-bot/database.set_order_status_by_admin.
     """
     status_text = str(new_status or "").strip()
     if not status_text:

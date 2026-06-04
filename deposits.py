@@ -120,7 +120,7 @@ async def finalize_approved_deposit(
     deposit_method: str,
 ) -> bool:
     """
-    Atomic approval — mirrors SOLDUIM/database.finalize_approved_deposit.
+    Atomic approval — mirrors soldium-bot/database.finalize_approved_deposit.
     Updates deposit, credits balance, inserts deposit_transactions row.
     """
     amount_money = to_float(amount)

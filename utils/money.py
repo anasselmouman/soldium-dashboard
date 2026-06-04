@@ -1,4 +1,4 @@
-"""Money helpers aligned with SOLDUIM/utils/money.py."""
+"""Money helpers aligned with soldium-bot/utils/money.py."""
 from __future__ import annotations
 
 from decimal import Decimal, ROUND_HALF_UP

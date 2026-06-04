@@ -18,7 +18,7 @@ _DIR = Path(__file__).resolve().parent
 
 load_dotenv(_DIR / ".env")
 
-load_dotenv(_DIR.parent / "SOLDUIM" / ".env")
+load_dotenv(_DIR.parent / "soldium-bot" / ".env")
 
 
 

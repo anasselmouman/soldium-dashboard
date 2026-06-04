@@ -1,4 +1,4 @@
-"""Ledger naming aligned with SOLDUIM/utils/payment_banks.py."""
+"""Ledger naming aligned with soldium-bot/utils/payment_banks.py."""
 from __future__ import annotations
 
 CRYPTO_LEDGER_NAME = "Binance/Crypto"

@@ -1,4 +1,4 @@
-"""Order status normalization (aligned with SOLDUIM/utils/order_status_ar.py)."""
+"""Order status normalization (aligned with soldium-bot/utils/order_status_ar.py)."""
 from __future__ import annotations
 
 
