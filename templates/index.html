@@ -1,0 +1,760 @@
+{% extends "base.html" %}
+
+
+
+{% block title %}{{ page_title }} — الإحصائيات الرئيسية{% endblock %}
+
+
+
+{% block header_actions %}
+
+<button
+
+  id="refresh-btn"
+
+  type="button"
+
+  class="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-surface-800 px-3 py-2 text-sm font-medium text-slate-200 hover:bg-surface-700 hover:border-slate-600 transition disabled:opacity-50"
+
+>
+
+  <svg id="refresh-icon" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+
+    <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v6h6M20 20v-6h-6M5 19a9 9 0 0114-7.5M19 5a9 9 0 00-14 7.5" />
+
+  </svg>
+
+  تحديث
+
+</button>
+
+{% endblock %}
+
+
+
+{% block content %}
+
+<section class="space-y-8">
+
+  <div id="alert" class="hidden rounded-lg border px-4 py-3 text-sm" role="alert"></div>
+
+
+
+  <!-- بطاقة VIP — رصيد المزوّد -->
+
+  <article
+
+    id="provider-card"
+
+    class="soldium-cut-card soldium-cut-card--vip hidden p-6 sm:p-8 shadow-xl shadow-black/30"
+
+  >
+
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+
+      <div class="flex items-start gap-4">
+
+        <div class="h-14 w-14 rounded-lg border border-amber-500/30 bg-amber-500/10 flex items-center justify-center shrink-0">
+
+          <svg class="h-7 w-7 text-amber-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+
+          </svg>
+
+        </div>
+
+        <div>
+
+          <p class="text-xs font-semibold uppercase tracking-widest text-amber-300/90">رصيد المزوّد</p>
+
+          <p class="text-sm text-slate-400 mt-0.5">الرصيد المتاح لدى مزوّد خدمات SMM</p>
+
+          <p id="provider-balance" class="mt-2 text-4xl font-bold text-white tabular-nums">—</p>
+
+          <p
+            id="provider-breakdown"
+            class="mt-1.5 min-h-[1.125rem] text-[11px] leading-snug text-slate-500/90 tabular-nums opacity-0 transition-opacity duration-200"
+            aria-live="polite"
+          ></p>
+
+          <p id="provider-meta" class="mt-1 text-xs text-slate-500"></p>
+
+        </div>
+
+      </div>
+
+      <button
+
+        id="provider-refresh-btn"
+
+        type="button"
+
+        class="self-start rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-2 text-xs font-medium text-amber-200 hover:bg-amber-500/20 transition disabled:opacity-50"
+
+      >
+
+        تحديث الرصيد
+
+      </button>
+
+    </div>
+
+    <p id="provider-error" class="hidden mt-4 text-sm text-red-300 rounded-lg border border-red-900/50 bg-red-950/30 px-3 py-2"></p>
+
+  </article>
+
+
+
+  <div id="stats-loading" class="flex items-center justify-center gap-3 py-16 text-slate-400">
+
+    <svg class="h-6 w-6 animate-spin" viewBox="0 0 24 24" fill="none">
+
+      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+
+      <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+
+    </svg>
+
+    جاري تحميل الإحصائيات…
+
+  </div>
+
+
+
+  <div id="stats-grid" class="hidden grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5">
+
+    <article class="soldium-cut-card group p-6 shadow-xl shadow-black/20 transition hover:border-slate-600">
+
+      <div class="flex items-start justify-between gap-3">
+
+        <div>
+
+          <p class="text-xs font-medium uppercase tracking-wider text-slate-500">إجمالي المستخدمين</p>
+
+          <p id="kpi-users" class="mt-3 text-3xl font-bold text-white tabular-nums">—</p>
+
+        </div>
+
+        <div class="h-11 w-11 rounded-lg border border-accent-500/25 bg-accent-500/10 flex items-center justify-center text-accent-400">
+
+          <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+
+            <path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+
+          </svg>
+
+        </div>
+
+      </div>
+
+      <div class="soldium-segment-divider my-4"></div>
+
+      <p class="text-xs text-slate-500">جميع الحسابات المسجّلة في البوت</p>
+
+    </article>
+
+
+
+    <article class="soldium-cut-card group p-6 shadow-xl shadow-black/20 transition hover:border-slate-600">
+
+      <div class="flex items-start justify-between gap-3">
+
+        <div>
+
+          <p class="text-xs font-medium uppercase tracking-wider text-slate-500">إجمالي المبيعات</p>
+
+          <p id="kpi-revenue" class="mt-3 text-3xl font-bold text-emerald-300 tabular-nums">—</p>
+
+        </div>
+
+        <div class="h-11 w-11 rounded-lg border border-emerald-500/25 bg-emerald-500/10 flex items-center justify-center text-emerald-400">
+
+          <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+
+          </svg>
+
+        </div>
+
+      </div>
+
+      <div class="soldium-segment-divider my-4"></div>
+
+      <p class="text-xs text-slate-500">طلبات مكتملة وجزئية (بالدرهم)</p>
+
+    </article>
+
+
+
+    <article class="soldium-cut-card group p-6 shadow-xl shadow-black/20 transition hover:border-slate-600">
+
+      <div class="flex items-start justify-between gap-3">
+
+        <div>
+
+          <p class="text-xs font-medium uppercase tracking-wider text-slate-500">الطلبات المكتملة</p>
+
+          <p id="kpi-orders" class="mt-3 text-3xl font-bold text-indigo-300 tabular-nums">—</p>
+
+        </div>
+
+        <div class="h-11 w-11 rounded-lg border border-indigo-500/25 bg-indigo-500/10 flex items-center justify-center text-indigo-400">
+
+          <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+
+          </svg>
+
+        </div>
+
+      </div>
+
+      <div class="soldium-segment-divider my-4"></div>
+
+      <p class="text-xs text-slate-500">
+
+        <a href="/orders" class="text-accent-400 hover:text-accent-300 transition">عرض إدارة الطلبات ←</a>
+
+      </p>
+
+    </article>
+
+
+
+    <article id="kpi-pending-card" class="soldium-cut-card group p-6 shadow-xl shadow-black/20 transition hover:border-slate-600">
+
+      <div class="flex items-start justify-between gap-3">
+
+        <div>
+
+          <p class="text-xs font-medium uppercase tracking-wider text-slate-500">إجراءات معلقة</p>
+
+          <div class="mt-3 flex items-center gap-2 flex-wrap">
+
+            <p id="kpi-pending-total" class="text-3xl font-bold text-white tabular-nums">—</p>
+
+            <span id="kpi-pending-badge" class="hidden inline-flex rounded-full bg-red-500/15 text-red-300 border border-red-500/40 px-2 py-0.5 text-xs font-semibold">
+
+              يتطلب انتباه
+
+            </span>
+
+          </div>
+
+        </div>
+
+        <div class="h-11 w-11 rounded-lg border border-amber-500/25 bg-amber-500/10 flex items-center justify-center text-amber-400">
+
+          <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+
+          </svg>
+
+        </div>
+
+      </div>
+
+      <div class="soldium-segment-divider my-4"></div>
+
+      <ul class="space-y-2 text-sm">
+
+        <li>
+
+          <a id="link-pending-deposits" href="/deposits" class="flex items-center justify-between gap-2 rounded-lg border border-slate-800 bg-surface-800/50 px-3 py-2 hover:border-slate-600 transition">
+
+            <span class="text-slate-300">إيداعات معلقة</span>
+
+            <span id="kpi-pending-deposits" class="font-mono font-semibold text-slate-200">—</span>
+
+          </a>
+
+        </li>
+
+        <li>
+
+          <a id="link-pending-withdrawals" href="/withdrawals" class="flex items-center justify-between gap-2 rounded-lg border border-slate-800 bg-surface-800/50 px-3 py-2 hover:border-slate-600 transition">
+
+            <span class="text-slate-300">سحوبات معلقة</span>
+
+            <span id="kpi-pending-withdrawals" class="font-mono font-semibold text-slate-200">—</span>
+
+          </a>
+
+        </li>
+
+      </ul>
+
+    </article>
+
+  </div>
+
+
+
+  <div id="quick-links" class="hidden soldium-cut-card p-6">
+
+    <h2 class="text-sm font-semibold text-slate-300 mb-4">اختصارات سريعة</h2>
+
+    <div class="flex flex-wrap gap-3">
+
+      <a href="/deposits" class="rounded-lg border border-slate-700 bg-surface-800 px-4 py-2 text-sm text-slate-200 hover:border-accent-500/40 hover:text-accent-300 transition">إدارة الإيداعات</a>
+
+      <a href="/withdrawals" class="rounded-lg border border-slate-700 bg-surface-800 px-4 py-2 text-sm text-slate-200 hover:border-accent-500/40 hover:text-accent-300 transition">إدارة السحوبات</a>
+
+      <a href="/orders" class="rounded-lg border border-slate-700 bg-surface-800 px-4 py-2 text-sm text-slate-200 hover:border-accent-500/40 hover:text-accent-300 transition">إدارة الطلبات</a>
+
+      <a href="/users" class="rounded-lg border border-slate-700 bg-surface-800 px-4 py-2 text-sm text-slate-200 hover:border-accent-500/40 hover:text-accent-300 transition">إدارة المستخدمين</a>
+
+    </div>
+
+  </div>
+
+</section>
+
+{% endblock %}
+
+
+
+{% block scripts %}
+
+<script>
+
+  const STATS_URL = "/api/stats";
+
+  const PROVIDER_URL = "/api/provider/balance";
+
+
+
+  const els = {
+
+    alert: document.getElementById("alert"),
+
+    loading: document.getElementById("stats-loading"),
+
+    grid: document.getElementById("stats-grid"),
+
+    quickLinks: document.getElementById("quick-links"),
+
+    refreshBtn: document.getElementById("refresh-btn"),
+
+    refreshIcon: document.getElementById("refresh-icon"),
+
+    users: document.getElementById("kpi-users"),
+
+    revenue: document.getElementById("kpi-revenue"),
+
+    orders: document.getElementById("kpi-orders"),
+
+    pendingTotal: document.getElementById("kpi-pending-total"),
+
+    pendingBadge: document.getElementById("kpi-pending-badge"),
+
+    pendingDeposits: document.getElementById("kpi-pending-deposits"),
+
+    pendingWithdrawals: document.getElementById("kpi-pending-withdrawals"),
+
+    pendingCard: document.getElementById("kpi-pending-card"),
+
+    linkDeposits: document.getElementById("link-pending-deposits"),
+
+    linkWithdrawals: document.getElementById("link-pending-withdrawals"),
+
+    providerCard: document.getElementById("provider-card"),
+
+    providerBalance: document.getElementById("provider-balance"),
+
+    providerBreakdown: document.getElementById("provider-breakdown"),
+
+    providerMeta: document.getElementById("provider-meta"),
+
+    providerError: document.getElementById("provider-error"),
+
+    providerRefresh: document.getElementById("provider-refresh-btn"),
+
+  };
+
+
+
+  function showAlert(message, type = "error") {
+
+    els.alert.textContent = message;
+
+    els.alert.className =
+
+      "rounded-lg border px-4 py-3 text-sm " +
+
+      (type === "error"
+
+        ? "border-red-900/60 bg-red-950/40 text-red-200"
+
+        : "border-emerald-900/60 bg-emerald-950/40 text-emerald-200");
+
+    els.alert.classList.remove("hidden");
+
+  }
+
+
+
+  function hideAlert() {
+
+    els.alert.classList.add("hidden");
+
+  }
+
+
+
+  function formatCount(n) {
+
+    return Number(n).toLocaleString("ar-MA");
+
+  }
+
+
+
+  function formatDh(value) {
+
+    const n = Number(value);
+
+    if (Number.isNaN(n)) return "—";
+
+    return (
+
+      n.toLocaleString("ar-MA", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " درهم"
+
+    );
+
+  }
+
+
+
+  function formatUsd(value) {
+
+    const n = Number(value);
+
+    if (Number.isNaN(n)) return "—";
+
+    return (
+
+      n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " $"
+
+    );
+
+  }
+
+
+
+  function formatUsdCompact(value) {
+
+    const n = Number(value);
+
+    if (Number.isNaN(n)) return "$0";
+
+    const formatted = n.toLocaleString("en-US", {
+
+      minimumFractionDigits: 0,
+
+      maximumFractionDigits: 2,
+
+    });
+
+    return "$" + formatted;
+
+  }
+
+
+
+  const PROVIDER_BREAKDOWN_LABELS = [
+
+    ["tiktok", "تيك توك"],
+
+    ["instagram", "انستغرام"],
+
+    ["facebook", "فيسبوك"],
+
+    ["default", "افتراضي"],
+
+  ];
+
+
+
+  function formatProviderBreakdown(breakdown) {
+
+    if (!breakdown || typeof breakdown !== "object") return "";
+
+    return PROVIDER_BREAKDOWN_LABELS.map(([key, label]) => {
+
+      const amount = breakdown[key] ?? 0;
+
+      return label + ": " + formatUsdCompact(amount);
+
+    }).join(" | ");
+
+  }
+
+
+
+  function parseErrorDetail(body) {
+
+    const detail = body?.detail;
+
+    if (!detail) return "فشل تحميل البيانات.";
+
+    if (typeof detail === "string") return detail;
+
+    if (detail.message) return detail.message;
+
+    return "حدث خطأ غير متوقع.";
+
+  }
+
+
+
+  function applyPendingHighlight(count, linkEl, countEl) {
+
+    const n = Number(count) || 0;
+
+    countEl.textContent = formatCount(n);
+
+    if (n > 0) {
+
+      countEl.classList.add("text-red-300");
+
+      countEl.classList.remove("text-slate-200");
+
+      linkEl.classList.add("border-red-900/50", "bg-red-950/20");
+
+    } else {
+
+      countEl.classList.remove("text-red-300");
+
+      countEl.classList.add("text-slate-200");
+
+      linkEl.classList.remove("border-red-900/50", "bg-red-950/20");
+
+    }
+
+  }
+
+
+
+  function populateStats(data) {
+
+    els.users.textContent = formatCount(data.total_users ?? 0);
+
+    els.revenue.textContent = formatDh(data.total_revenue_dh ?? 0);
+
+    els.orders.textContent = formatCount(data.completed_orders ?? 0);
+
+
+
+    const pendingTotal = Number(data.pending_actions ?? 0);
+
+    const pendingDep = Number(data.pending_deposits ?? 0);
+
+    const pendingWd = Number(data.pending_withdrawals ?? 0);
+
+
+
+    els.pendingTotal.textContent = formatCount(pendingTotal);
+
+    applyPendingHighlight(pendingDep, els.linkDeposits, els.pendingDeposits);
+
+    applyPendingHighlight(pendingWd, els.linkWithdrawals, els.pendingWithdrawals);
+
+
+
+    if (pendingTotal > 0) {
+
+      els.pendingBadge.classList.remove("hidden");
+
+      els.pendingCard.classList.add("border-red-900/40");
+
+    } else {
+
+      els.pendingBadge.classList.add("hidden");
+
+      els.pendingCard.classList.remove("border-red-900/40");
+
+    }
+
+  }
+
+
+
+  async function loadProviderBalance() {
+
+    els.providerCard.classList.remove("hidden");
+
+    els.providerError.classList.add("hidden");
+
+    els.providerRefresh.disabled = true;
+
+    els.providerBalance.textContent = "…";
+
+    els.providerBreakdown.textContent = "";
+
+    els.providerBreakdown.classList.add("opacity-0");
+
+    els.providerMeta.textContent = "جاري الاتصال بالمزوّد…";
+
+
+
+    try {
+
+      const response = await fetch(PROVIDER_URL, { credentials: "same-origin" });
+
+      const body = await response.json().catch(() => ({}));
+
+      if (!response.ok) throw new Error(parseErrorDetail(body));
+
+
+
+      if (body.ok) {
+
+        const total = body.total_usd ?? body.balance ?? 0;
+
+        const currency = (body.currency || "USD").toUpperCase();
+
+        const display =
+
+          currency === "USD" ? formatUsd(total) : `${total} ${currency}`;
+
+        els.providerBalance.textContent = display;
+
+        els.providerBalance.classList.remove("text-red-300");
+
+        els.providerBalance.classList.add("text-white");
+
+        const breakdownLine = formatProviderBreakdown(body.breakdown);
+
+        els.providerBreakdown.textContent = breakdownLine;
+
+        els.providerBreakdown.classList.toggle("opacity-0", !breakdownLine);
+
+        els.providerMeta.textContent = "آخر تحديث: الآن";
+
+        return;
+
+      }
+
+
+
+      els.providerBalance.textContent = "غير متاح";
+
+      els.providerBalance.classList.add("text-red-300");
+
+      els.providerBreakdown.textContent = "";
+
+      els.providerBreakdown.classList.add("opacity-0");
+
+      els.providerError.textContent = body.error || "تعذّر جلب رصيد المزوّد.";
+
+      els.providerError.classList.remove("hidden");
+
+      els.providerMeta.textContent = "";
+
+    } catch (err) {
+
+      els.providerBalance.textContent = "غير متاح";
+
+      els.providerBreakdown.textContent = "";
+
+      els.providerBreakdown.classList.add("opacity-0");
+
+      els.providerError.textContent =
+
+        err.message || "تعذّر الاتصال بمزوّد الخدمة. حاول لاحقًا.";
+
+      els.providerError.classList.remove("hidden");
+
+      els.providerMeta.textContent = "";
+
+    } finally {
+
+      els.providerRefresh.disabled = false;
+
+    }
+
+  }
+
+
+
+  function setStatsLoading(isLoading) {
+
+    els.refreshBtn.disabled = isLoading;
+
+    els.refreshIcon.classList.toggle("animate-spin", isLoading);
+
+    if (isLoading) {
+
+      els.loading.classList.remove("hidden");
+
+      els.grid.classList.add("hidden");
+
+      els.quickLinks.classList.add("hidden");
+
+    } else {
+
+      els.loading.classList.add("hidden");
+
+    }
+
+  }
+
+
+
+  async function loadStats() {
+
+    hideAlert();
+
+    setStatsLoading(true);
+
+    try {
+
+      const response = await fetch(STATS_URL, { credentials: "same-origin" });
+
+      const body = await response.json().catch(() => ({}));
+
+      if (!response.ok) throw new Error(parseErrorDetail(body));
+
+      populateStats(body);
+
+      els.grid.classList.remove("hidden");
+
+      els.quickLinks.classList.remove("hidden");
+
+    } catch (err) {
+
+      showAlert(err.message || "تعذّر تحميل الإحصائيات.");
+
+    } finally {
+
+      setStatsLoading(false);
+
+    }
+
+  }
+
+
+
+  async function refreshAll() {
+
+    await Promise.all([loadStats(), loadProviderBalance()]);
+
+  }
+
+
+
+  els.refreshBtn.addEventListener("click", refreshAll);
+
+  els.providerRefresh.addEventListener("click", loadProviderBalance);
+
+  refreshAll();
+
+</script>
+
+{% endblock %}
+

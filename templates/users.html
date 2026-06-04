@@ -1,0 +1,533 @@
+{% extends "base.html" %}
+
+{% block title %}{{ page_title }} — المستخدمون{% endblock %}
+
+{% block header_actions %}
+<button
+  id="refresh-btn"
+  type="button"
+  class="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-surface-800 px-3 py-2 text-sm font-medium text-slate-200 hover:bg-surface-700 hover:border-slate-600 transition disabled:opacity-50"
+>
+  <svg id="refresh-icon" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+    <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v6h6M20 20v-6h-6M5 19a9 9 0 0114-7.5M19 5a9 9 0 00-14 7.5" />
+  </svg>
+  تحديث
+</button>
+{% endblock %}
+
+{% block content %}
+<section class="space-y-6">
+  <div class="flex flex-col sm:flex-row sm:items-end sm:justify-end gap-4">
+    <div class="rounded-xl border border-slate-800 bg-surface-900 px-4 py-3 min-w-[120px] ms-auto">
+      <p class="text-xs uppercase tracking-wider text-slate-500">إجمالي المستخدمين</p>
+      <p id="users-total" class="mt-1 text-2xl font-semibold text-accent-400">—</p>
+    </div>
+  </div>
+
+  <div class="flex flex-col sm:flex-row gap-3">
+    <div class="flex-1 relative">
+      <label for="search-input" class="sr-only">بحث</label>
+      <input
+        id="search-input"
+        type="search"
+        placeholder="بحث بمعرّف تيليغرام أو اسم المستخدم…"
+        class="w-full rounded-lg border border-slate-700 bg-surface-900 py-2.5 ps-10 pe-4 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-accent-500"
+      />
+      <svg class="absolute start-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+      </svg>
+    </div>
+    <button
+      id="search-btn"
+      type="button"
+      class="rounded-lg bg-accent-600 hover:bg-accent-500 px-4 py-2.5 text-sm font-medium text-white shrink-0"
+    >
+      بحث
+    </button>
+  </div>
+
+  <div id="alert" class="hidden rounded-lg border px-4 py-3 text-sm" role="alert"></div>
+
+  <div class="rounded-xl border border-slate-800 bg-surface-900 overflow-hidden shadow-xl shadow-black/20">
+    <div id="loading" class="flex items-center justify-center gap-3 py-16 text-slate-400">
+      <svg class="h-5 w-5 animate-spin" viewBox="0 0 24 24" fill="none">
+        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+      </svg>
+      جاري تحميل المستخدمين…
+    </div>
+
+    <div id="empty-state" class="hidden py-16 text-center">
+      <p class="text-slate-300 font-medium">لا توجد نتائج</p>
+      <p class="mt-1 text-sm text-slate-500">جرّب معايير بحث أخرى.</p>
+    </div>
+
+    <div id="table-wrap" class="hidden overflow-x-auto">
+      <table class="min-w-full text-sm text-start">
+        <thead class="bg-surface-800/80 text-xs uppercase tracking-wider text-slate-400">
+          <tr>
+            <th class="px-4 py-3 font-medium">المعرّف</th>
+            <th class="px-4 py-3 font-medium">المستخدم</th>
+            <th class="px-4 py-3 font-medium">الرصيد</th>
+            <th class="px-4 py-3 font-medium">إجمالي الإنفاق</th>
+            <th class="px-4 py-3 font-medium">مستوى الإحالة</th>
+            <th class="px-4 py-3 font-medium">رصيد الإحالة</th>
+          </tr>
+        </thead>
+        <tbody id="users-body" class="divide-y divide-slate-800/80"></tbody>
+      </table>
+    </div>
+
+    <div id="pagination" class="hidden border-t border-slate-800 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+      <p id="page-info" class="text-xs text-slate-500"></p>
+      <div class="flex gap-2">
+        <button id="prev-page" type="button" class="rounded-lg border border-slate-600 px-3 py-1.5 text-xs text-slate-300 hover:bg-surface-800 disabled:opacity-40">
+          السابق
+        </button>
+        <button id="next-page" type="button" class="rounded-lg border border-slate-600 px-3 py-1.5 text-xs text-slate-300 hover:bg-surface-800 disabled:opacity-40">
+          التالي
+        </button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- نافذة إدارة المستخدم -->
+<div id="user-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4" aria-hidden="true">
+  <div id="user-modal-backdrop" class="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
+  <div class="relative w-full max-w-lg rounded-xl border border-slate-700 bg-surface-900 shadow-2xl p-6 space-y-5 max-h-[90vh] overflow-y-auto">
+    <div class="flex items-start justify-between gap-3">
+      <div>
+        <h2 class="text-lg font-semibold text-white">إدارة المستخدم</h2>
+        <p class="text-sm text-slate-400 mt-1">
+          <span id="modal-user-label" class="font-mono text-slate-200"></span>
+        </p>
+      </div>
+      <button id="user-modal-close" type="button" class="text-slate-400 hover:text-white text-xl leading-none" aria-label="إغلاق">×</button>
+    </div>
+
+    <dl class="grid grid-cols-2 gap-3 text-sm rounded-lg border border-slate-800 bg-surface-800/50 p-3">
+      <div>
+        <dt class="text-xs text-slate-500">الرصيد الحالي</dt>
+        <dd id="modal-balance" class="font-semibold text-emerald-300 mt-0.5">—</dd>
+      </div>
+      <div>
+        <dt class="text-xs text-slate-500">إجمالي الإنفاق</dt>
+        <dd id="modal-spent" class="font-semibold text-slate-200 mt-0.5">—</dd>
+      </div>
+      <div>
+        <dt class="text-xs text-slate-500">رصيد الإحالة</dt>
+        <dd id="modal-referral-balance" class="font-semibold text-amber-300 mt-0.5">—</dd>
+      </div>
+      <div>
+        <dt class="text-xs text-slate-500">مستوى الإحالة</dt>
+        <dd id="modal-referral-level" class="font-semibold text-accent-300 mt-0.5">—</dd>
+      </div>
+    </dl>
+
+    <div class="space-y-3 border-t border-slate-800 pt-4">
+      <h3 class="text-sm font-semibold text-white">تعديل الرصيد</h3>
+      <p class="text-xs text-slate-500">أدخل مبلغًا موجبًا للإضافة أو سالبًا للخصم من الرصيد القابل للإنفاق.</p>
+      <div>
+        <label for="adjust-amount" class="block text-xs font-medium text-slate-400 mb-1">المبلغ (درهم)</label>
+        <input
+          id="adjust-amount"
+          type="number"
+          step="0.01"
+          placeholder="مثال: 50 أو -20"
+          class="w-full rounded-lg border border-slate-600 bg-surface-800 px-3 py-2 text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-accent-500"
+        />
+      </div>
+      <div>
+        <label for="adjust-reason" class="block text-xs font-medium text-slate-400 mb-1">سبب التعديل (اختياري)</label>
+        <textarea
+          id="adjust-reason"
+          rows="2"
+          maxlength="500"
+          placeholder="مثال: تعويض عن طلب فاشل"
+          class="w-full rounded-lg border border-slate-600 bg-surface-800 px-3 py-2 text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-accent-500 resize-y text-sm"
+        ></textarea>
+      </div>
+      <button
+        id="adjust-btn"
+        type="button"
+        class="w-full rounded-lg bg-emerald-600 hover:bg-emerald-500 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+      >
+        تطبيق تعديل الرصيد
+      </button>
+    </div>
+
+    <div class="space-y-3 border-t border-slate-800 pt-4">
+      <h3 class="text-sm font-semibold text-white">مستوى الإحالة</h3>
+      <div>
+        <label for="referral-level-select" class="block text-xs font-medium text-slate-400 mb-1">اختر المستوى</label>
+        <select
+          id="referral-level-select"
+          class="w-full rounded-lg border border-slate-600 bg-surface-800 px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-accent-500"
+        >
+          <option value="1">المستوى 1 — ناشر</option>
+          <option value="2">المستوى 2 — محترف</option>
+          <option value="3">المستوى 3 — خبير</option>
+          <option value="4">المستوى 4 — شريك</option>
+        </select>
+      </div>
+      <button
+        id="level-btn"
+        type="button"
+        class="w-full rounded-lg bg-indigo-600 hover:bg-indigo-500 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+      >
+        حفظ مستوى الإحالة
+      </button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const API_BASE = "/api/users";
+  const REFERRAL_LEVEL_NAMES = {
+    1: "ناشر",
+    2: "محترف",
+    3: "خبير",
+    4: "شريك",
+  };
+
+  const state = {
+    page: 1,
+    limit: 25,
+    search: "",
+    total: 0,
+    totalPages: 1,
+    users: [],
+    selectedUser: null,
+  };
+
+  const els = {
+    alert: document.getElementById("alert"),
+    loading: document.getElementById("loading"),
+    empty: document.getElementById("empty-state"),
+    tableWrap: document.getElementById("table-wrap"),
+    tbody: document.getElementById("users-body"),
+    total: document.getElementById("users-total"),
+    searchInput: document.getElementById("search-input"),
+    searchBtn: document.getElementById("search-btn"),
+    refreshBtn: document.getElementById("refresh-btn"),
+    refreshIcon: document.getElementById("refresh-icon"),
+    pagination: document.getElementById("pagination"),
+    pageInfo: document.getElementById("page-info"),
+    prevPage: document.getElementById("prev-page"),
+    nextPage: document.getElementById("next-page"),
+  };
+
+  const modal = {
+    root: document.getElementById("user-modal"),
+    backdrop: document.getElementById("user-modal-backdrop"),
+    close: document.getElementById("user-modal-close"),
+    label: document.getElementById("modal-user-label"),
+    balance: document.getElementById("modal-balance"),
+    spent: document.getElementById("modal-spent"),
+    referralBalance: document.getElementById("modal-referral-balance"),
+    referralLevel: document.getElementById("modal-referral-level"),
+    adjustAmount: document.getElementById("adjust-amount"),
+    adjustReason: document.getElementById("adjust-reason"),
+    adjustBtn: document.getElementById("adjust-btn"),
+    levelSelect: document.getElementById("referral-level-select"),
+    levelBtn: document.getElementById("level-btn"),
+  };
+
+  function showAlert(message, type = "error") {
+    els.alert.textContent = message;
+    els.alert.className =
+      "rounded-lg border px-4 py-3 text-sm " +
+      (type === "error"
+        ? "border-red-900/60 bg-red-950/40 text-red-200"
+        : "border-emerald-900/60 bg-emerald-950/40 text-emerald-200");
+    els.alert.classList.remove("hidden");
+  }
+
+  function hideAlert() {
+    els.alert.classList.add("hidden");
+  }
+
+  function formatDh(value) {
+    const n = Number(value);
+    if (Number.isNaN(n)) return "—";
+    return n.toLocaleString("ar-MA", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " درهم";
+  }
+
+  function formatLevel(level) {
+    const n = Number(level) || 1;
+    const name = REFERRAL_LEVEL_NAMES[n] || "";
+    return name ? `المستوى ${n} — ${name}` : `المستوى ${n}`;
+  }
+
+  function escapeHtml(text) {
+    const div = document.createElement("div");
+    div.textContent = text ?? "";
+    return div.innerHTML;
+  }
+
+  function parseErrorDetail(body) {
+    const detail = body?.detail;
+    if (!detail) return "فشل تنفيذ الطلب.";
+    if (typeof detail === "string") return detail;
+    if (detail.message) return detail.message;
+    if (Array.isArray(detail)) {
+      const msgs = detail.map((item) => item.msg).filter(Boolean);
+      if (msgs.length) return msgs.join(" ");
+    }
+    return "حدث خطأ غير متوقع.";
+  }
+
+  async function fetchJson(url, options) {
+    const response = await fetch(url, {
+      credentials: "same-origin",
+      ...options,
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(parseErrorDetail(body));
+    return body;
+  }
+
+  function userProfileHref(userId) {
+    return `/dashboard/users/${Number(userId)}`;
+  }
+
+  function userProfileLink(userId, innerHtml) {
+    return `<a href="${userProfileHref(userId)}" class="text-blue-400 hover:text-blue-300 underline font-bold" target="_blank" rel="noopener" onclick="event.stopPropagation()">${innerHtml}</a>`;
+  }
+
+  function userDisplayName(user) {
+    const uid = user.user_id;
+    return user.telegram_name
+      ? userProfileLink(uid, escapeHtml(user.telegram_name))
+      : userProfileLink(uid, `<span class="font-mono">${uid}</span>`);
+  }
+
+  function renderRow(user) {
+    return `
+      <tr
+        class="hover:bg-surface-800/40 transition cursor-pointer"
+        data-user-id="${user.user_id}"
+        tabindex="0"
+        role="button"
+        aria-label="إدارة المستخدم ${user.user_id}"
+      >
+        <td class="px-4 py-3 font-mono text-slate-300">${userProfileLink(user.user_id, String(user.user_id))}</td>
+        <td class="px-4 py-3">${userDisplayName(user)}</td>
+        <td class="px-4 py-3 font-semibold text-emerald-300">${formatDh(user.balance)}</td>
+        <td class="px-4 py-3 text-slate-200">${formatDh(user.total_spent)}</td>
+        <td class="px-4 py-3">
+          <span class="inline-flex rounded-md bg-accent-500/10 text-accent-300 border border-accent-500/30 px-2 py-0.5 text-xs font-medium">
+            ${escapeHtml(formatLevel(user.referral_level))}
+          </span>
+        </td>
+        <td class="px-4 py-3 text-amber-300">${formatDh(user.referral_balance)}</td>
+      </tr>
+    `;
+  }
+
+  function updateRowInTable(user) {
+    const row = els.tbody.querySelector(`tr[data-user-id="${user.user_id}"]`);
+    if (row) row.outerHTML = renderRow(user);
+  }
+
+  function fillModal(user) {
+    state.selectedUser = user;
+    const name = user.telegram_name ? user.telegram_name : `معرّف ${user.user_id}`;
+    modal.label.textContent = `${name} (#${user.user_id})`;
+    modal.balance.textContent = formatDh(user.balance);
+    modal.spent.textContent = formatDh(user.total_spent);
+    modal.referralBalance.textContent = formatDh(user.referral_balance);
+    modal.referralLevel.textContent = formatLevel(user.referral_level);
+    modal.adjustAmount.value = "";
+    modal.adjustReason.value = "";
+    modal.levelSelect.value = String(user.referral_level || 1);
+  }
+
+  function openModal(user) {
+    fillModal(user);
+    modal.root.classList.remove("hidden");
+  }
+
+  function closeModal() {
+    state.selectedUser = null;
+    modal.root.classList.add("hidden");
+  }
+
+  function mergeUserUpdate(partial) {
+    if (!state.selectedUser) return;
+    const updated = { ...state.selectedUser, ...partial };
+    state.selectedUser = updated;
+    const idx = state.users.findIndex((u) => u.user_id === updated.user_id);
+    if (idx >= 0) state.users[idx] = updated;
+    fillModal(updated);
+    updateRowInTable(updated);
+  }
+
+  function setLoading(isLoading) {
+    els.refreshBtn.disabled = isLoading;
+    els.refreshIcon.classList.toggle("animate-spin", isLoading);
+    if (isLoading) els.loading.classList.remove("hidden");
+    else els.loading.classList.add("hidden");
+  }
+
+  function updatePagination() {
+    els.pageInfo.textContent = `الصفحة ${state.page} من ${state.totalPages} — ${state.total} مستخدم`;
+    els.prevPage.disabled = state.page <= 1;
+    els.nextPage.disabled = state.page >= state.totalPages;
+    els.pagination.classList.toggle("hidden", state.total === 0);
+  }
+
+  async function loadUsers() {
+    hideAlert();
+    setLoading(true);
+    els.empty.classList.add("hidden");
+    els.tableWrap.classList.add("hidden");
+
+    const params = new URLSearchParams({
+      page: String(state.page),
+      limit: String(state.limit),
+    });
+    if (state.search) params.set("search", state.search);
+
+    try {
+      const data = await fetchJson(`${API_BASE}?${params}`);
+      state.users = data.users ?? [];
+      state.total = data.total ?? 0;
+      state.totalPages = data.total_pages ?? 1;
+      state.page = data.page ?? state.page;
+
+      els.total.textContent = String(state.total);
+      updatePagination();
+
+      if (state.users.length === 0) {
+        els.empty.classList.remove("hidden");
+        els.tbody.innerHTML = "";
+        return;
+      }
+
+      els.tbody.innerHTML = state.users.map(renderRow).join("");
+      els.tableWrap.classList.remove("hidden");
+    } catch (err) {
+      els.total.textContent = "—";
+      showAlert(err.message || "تعذّر تحميل قائمة المستخدمين.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function applyBalanceAdjust() {
+    const user = state.selectedUser;
+    if (!user) return;
+    const amount = Number(modal.adjustAmount.value);
+    if (!Number.isFinite(amount) || amount === 0) {
+      showAlert("أدخل مبلغًا صالحًا (موجبًا أو سالبًا) بالدرهم.");
+      return;
+    }
+
+    modal.adjustBtn.disabled = true;
+    try {
+      const payload = { amount_dh: amount };
+      const reason = modal.adjustReason.value.trim();
+      if (reason) payload.reason = reason;
+      const result = await fetchJson(`${API_BASE}/${user.user_id}/adjust-balance`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      mergeUserUpdate({
+        balance: result.balance,
+        total_spent: result.total_spent,
+      });
+      showAlert(`تم تعديل الرصيد — الرصيد الجديد: ${formatDh(result.balance)}`, "success");
+      modal.adjustAmount.value = "";
+      modal.adjustReason.value = "";
+    } catch (err) {
+      showAlert(err.message || "فشل تعديل الرصيد.");
+    } finally {
+      modal.adjustBtn.disabled = false;
+    }
+  }
+
+  async function applyReferralLevel() {
+    const user = state.selectedUser;
+    if (!user) return;
+    const newLevel = Number(modal.levelSelect.value);
+    if (!Number.isInteger(newLevel) || newLevel < 1 || newLevel > 4) {
+      showAlert("اختر مستوى إحالة صالحًا (من 1 إلى 4).");
+      return;
+    }
+
+    modal.levelBtn.disabled = true;
+    try {
+      const result = await fetchJson(`${API_BASE}/${user.user_id}/change-referral-level`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ new_level: newLevel }),
+      });
+      mergeUserUpdate({ referral_level: result.referral_level });
+      showAlert(`تم تحديث مستوى الإحالة إلى ${formatLevel(result.referral_level)}`, "success");
+    } catch (err) {
+      showAlert(err.message || "فشل تغيير مستوى الإحالة.");
+    } finally {
+      modal.levelBtn.disabled = false;
+    }
+  }
+
+  els.tbody.addEventListener("click", (e) => {
+    const row = e.target.closest("tr[data-user-id]");
+    if (!row) return;
+    const userId = Number(row.dataset.userId);
+    const user = state.users.find((u) => u.user_id === userId);
+    if (user) openModal(user);
+  });
+
+  els.tbody.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    const row = e.target.closest("tr[data-user-id]");
+    if (!row) return;
+    e.preventDefault();
+    const userId = Number(row.dataset.userId);
+    const user = state.users.find((u) => u.user_id === userId);
+    if (user) openModal(user);
+  });
+
+  els.searchBtn.addEventListener("click", () => {
+    state.search = els.searchInput.value.trim();
+    state.page = 1;
+    loadUsers();
+  });
+
+  els.searchInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      state.search = els.searchInput.value.trim();
+      state.page = 1;
+      loadUsers();
+    }
+  });
+
+  els.prevPage.addEventListener("click", () => {
+    if (state.page > 1) {
+      state.page -= 1;
+      loadUsers();
+    }
+  });
+
+  els.nextPage.addEventListener("click", () => {
+    if (state.page < state.totalPages) {
+      state.page += 1;
+      loadUsers();
+    }
+  });
+
+  els.refreshBtn.addEventListener("click", loadUsers);
+  modal.backdrop.addEventListener("click", closeModal);
+  modal.close.addEventListener("click", closeModal);
+  modal.adjustBtn.addEventListener("click", applyBalanceAdjust);
+  modal.levelBtn.addEventListener("click", applyReferralLevel);
+
+  loadUsers();
+</script>
+{% endblock %}

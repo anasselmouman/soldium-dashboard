@@ -1,0 +1,313 @@
+"""SMM service catalog — SQLite smm_services table (shared with the bot)."""
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+from database_connector import db_transaction, get_db
+from utils.provider_parse import parse_provider_rate, parse_provider_service_id
+
+logger = logging.getLogger("soldium.services")
+
+DEFAULT_MARKUP_MULTIPLIER = 15.0
+
+
+def _row_to_dict(row: Any) -> dict[str, Any]:
+    return {
+        "service_id": str(row["service_id"]),
+        "category": str(row["category"] or ""),
+        "name_ar": str(row["name_ar"] or ""),
+        "provider_price_usd": float(row["provider_price_usd"] or 0),
+        "local_price_dh": float(row["local_price_dh"] or 0),
+        "min_qty": int(row["min_qty"] or 1),
+        "max_qty": int(row["max_qty"] or 0),
+        "is_active": bool(int(row["is_active"] or 0)),
+        "platform_key": str(row["platform_key"] or ""),
+        "section_key": row["section_key"],
+        "subsection_key": row["subsection_key"],
+        "local_item_id": str(row["local_item_id"] or ""),
+        "platform_title": str(row["platform_title"] or ""),
+        "section_title": row["section_title"],
+        "subsection_title": row["subsection_title"],
+    }
+
+
+async def list_services(*, include_inactive: bool = True) -> list[dict[str, Any]]:
+    sql = "SELECT * FROM smm_services"
+    if not include_inactive:
+        sql += " WHERE is_active = 1"
+    sql += " ORDER BY platform_key, section_key, subsection_key, name_ar"
+    async with get_db() as db:
+        async with db.execute(sql) as cursor:
+            rows = await cursor.fetchall()
+    return [_row_to_dict(r) for r in rows]
+
+
+def _build_filters(
+    *,
+    category: str | None,
+    search: str | None,
+) -> tuple[str, list[Any]]:
+    """Return SQL WHERE fragment (leading space + WHERE) and bound params."""
+    clauses: list[str] = []
+    params: list[Any] = []
+
+    if category and category.strip():
+        clauses.append("category = ?")
+        params.append(category.strip())
+
+    if search and search.strip():
+        raw = search.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        term = f"%{raw}%"
+        clauses.append("(name_ar LIKE ? ESCAPE '\\' OR service_id LIKE ? ESCAPE '\\')")
+        params.extend([term, term])
+
+    if not clauses:
+        return "", []
+    return " WHERE " + " AND ".join(clauses), params
+
+
+async def list_categories() -> list[str]:
+    async with get_db() as db:
+        async with db.execute(
+            """
+            SELECT DISTINCT category
+            FROM smm_services
+            WHERE category IS NOT NULL AND TRIM(category) != ''
+            ORDER BY category COLLATE NOCASE
+            """,
+        ) as cursor:
+            rows = await cursor.fetchall()
+    return [str(row[0]) for row in rows]
+
+
+async def list_services_paginated(
+    *,
+    category: str | None = None,
+    search: str | None = None,
+    page: int = 1,
+    limit: int = 50,
+) -> dict[str, Any]:
+    page = max(1, int(page))
+    limit = min(max(1, int(limit)), 200)
+    offset = (page - 1) * limit
+
+    where_sql, params = _build_filters(category=category, search=search)
+
+    async with get_db() as db:
+        count_sql = f"""
+            SELECT
+                COUNT(*) AS total,
+                COALESCE(SUM(CASE WHEN is_active = 1 THEN 1 ELSE 0 END), 0) AS active_count
+            FROM smm_services
+            {where_sql}
+        """
+        async with db.execute(count_sql, params) as cursor:
+            count_row = await cursor.fetchone()
+
+        total_items = int(count_row[0]) if count_row else 0
+        active_count = int(count_row[1]) if count_row else 0
+        pending_count = total_items - active_count
+
+        total_pages = max(1, (total_items + limit - 1) // limit) if total_items else 1
+        if page > total_pages:
+            page = total_pages
+            offset = (page - 1) * limit
+
+        select_sql = f"""
+            SELECT *
+            FROM smm_services
+            {where_sql}
+            ORDER BY category COLLATE NOCASE, name_ar COLLATE NOCASE
+            LIMIT ? OFFSET ?
+        """
+        async with db.execute(select_sql, [*params, limit, offset]) as cursor:
+            rows = await cursor.fetchall()
+
+    return {
+        "services": [_row_to_dict(r) for r in rows],
+        "total_pages": total_pages,
+        "current_page": page,
+        "total_items": total_items,
+        "active_count": active_count,
+        "pending_count": pending_count,
+        "limit": limit,
+    }
+
+
+async def get_service(service_id: str) -> dict[str, Any] | None:
+    async with get_db() as db:
+        async with db.execute(
+            "SELECT * FROM smm_services WHERE service_id = ?",
+            (str(service_id),),
+        ) as cursor:
+            row = await cursor.fetchone()
+    return _row_to_dict(row) if row else None
+
+
+async def update_service(
+    service_id: str,
+    *,
+    name_ar: str | None = None,
+    local_price_dh: float | None = None,
+    is_active: bool | None = None,
+) -> bool:
+    fields: list[str] = []
+    params: list[Any] = []
+    if name_ar is not None:
+        fields.append("name_ar = ?")
+        params.append(str(name_ar)[:500])
+    if local_price_dh is not None:
+        fields.append("local_price_dh = ?")
+        params.append(float(local_price_dh))
+    if is_active is not None:
+        fields.append("is_active = ?")
+        params.append(1 if is_active else 0)
+    if not fields:
+        return False
+
+    params.append(str(service_id))
+    sql = f"UPDATE smm_services SET {', '.join(fields)} WHERE service_id = ?"
+
+    async with db_transaction() as db:
+        cursor = await db.execute(sql, params)
+        return int(cursor.rowcount or 0) > 0
+
+
+def _default_local_price(rate_usd: float) -> float:
+    return round(max(0.0, rate_usd) * DEFAULT_MARKUP_MULTIPLIER, 2)
+
+
+def _safe_int(value: object, default: int = 0) -> int:
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return default
+
+
+def _limits_from_entry(entry: dict[str, Any]) -> tuple[int, int]:
+    min_raw = _case_insensitive_get(entry, "min", "min_qty", "minimum")
+    max_raw = _case_insensitive_get(entry, "max", "max_qty", "maximum")
+    min_qty = max(1, _safe_int(min_raw, default=1))
+    max_qty = _safe_int(max_raw, default=1_000_000)
+    if max_qty < min_qty:
+        max_qty = min_qty
+    return min_qty, max_qty
+
+
+def _case_insensitive_get(entry: dict[str, Any], *keys: str) -> Any:
+    lowered = {str(k).lower(): v for k, v in entry.items() if isinstance(k, str)}
+    for key in keys:
+        if key.lower() in lowered:
+            return lowered[key.lower()]
+    return None
+
+
+async def sync_from_provider(provider_services: list[dict[str, Any]]) -> dict[str, int]:
+    """Merge provider API list into smm_services. Returns counts."""
+    updated = 0
+    inserted = 0
+    rates_applied = 0
+    skipped_no_id = 0
+
+    async with db_transaction() as db:
+        for entry in provider_services:
+            if not isinstance(entry, dict):
+                continue
+
+            pid = parse_provider_service_id(entry)
+            if pid is None:
+                skipped_no_id += 1
+                continue
+
+            service_id = str(pid)
+            rate = parse_provider_rate(entry)
+            min_qty, max_qty = _limits_from_entry(entry)
+
+            if rate is not None and rate > 0:
+                rates_applied += 1
+
+            cursor = await db.execute(
+                "SELECT service_id FROM smm_services WHERE service_id = ?",
+                (service_id,),
+            )
+            exists = await cursor.fetchone()
+
+            if exists:
+                if rate is not None:
+                    await db.execute(
+                        """
+                        UPDATE smm_services
+                        SET provider_price_usd = ?, min_qty = ?, max_qty = ?
+                        WHERE service_id = ?
+                        """,
+                        (float(rate), min_qty, max_qty, service_id),
+                    )
+                else:
+                    await db.execute(
+                        """
+                        UPDATE smm_services
+                        SET min_qty = ?, max_qty = ?
+                        WHERE service_id = ?
+                        """,
+                        (min_qty, max_qty, service_id),
+                    )
+                    logger.warning(
+                        "Provider service %s missing rate/price fields: keys=%s",
+                        service_id,
+                        list(entry.keys())[:12],
+                    )
+                updated += 1
+            else:
+                name = str(
+                    _case_insensitive_get(entry, "name", "title")
+                    or f"خدمة #{service_id}",
+                )[:500]
+                category = str(
+                    _case_insensitive_get(entry, "category", "type") or "غير مصنّف",
+                )[:500]
+                usd_rate = float(rate) if rate is not None else 0.0
+                await db.execute(
+                    """
+                    INSERT INTO smm_services (
+                        service_id, category, name_ar, provider_price_usd,
+                        local_price_dh, min_qty, max_qty, is_active,
+                        platform_key, local_item_id, platform_title
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, '', ?, '')
+                    """,
+                    (
+                        service_id,
+                        category,
+                        name,
+                        usd_rate,
+                        _default_local_price(usd_rate),
+                        min_qty,
+                        max_qty,
+                        service_id,
+                    ),
+                )
+                inserted += 1
+
+        await db.commit()
+
+    logger.info(
+        "Provider sync: updated=%s inserted=%s rates_applied=%s skipped_no_id=%s",
+        updated,
+        inserted,
+        rates_applied,
+        skipped_no_id,
+    )
+    return {
+        "updated": updated,
+        "inserted": inserted,
+        "rates_applied": rates_applied,
+        "skipped_no_id": skipped_no_id,
+        "total_provider": len(provider_services),
+    }
+
+
+async def count_services() -> int:
+    async with get_db() as db:
+        async with db.execute("SELECT COUNT(*) FROM smm_services") as cursor:
+            row = await cursor.fetchone()
+    return int(row[0]) if row else 0

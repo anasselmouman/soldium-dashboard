@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl" class="h-full">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{{ page_title }}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            surface: { 950: "#0b0f17", 900: "#111827", 800: "#1a2234" },
+            accent: { 400: "#38bdf8", 500: "#0ea5e9", 600: "#0284c7" },
+          },
+          fontFamily: { sans: ["Cairo", "Tajawal", "ui-sans-serif", "system-ui", "sans-serif"] },
+        },
+      },
+    };
+  </script>
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="preload" href="/assets/logo.png" as="image" type="image/png" />
+  <style>
+    .soldium-cut-panel {
+      position: relative;
+      background: linear-gradient(145deg, #111827 0%, #0b0f17 100%);
+      border: 1px solid #243047;
+      clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px));
+    }
+    .soldium-cut-panel::before,
+    .soldium-cut-panel::after {
+      content: "";
+      position: absolute;
+      width: 28px;
+      height: 3px;
+      background: linear-gradient(90deg, #0ea5e9, #6366f1);
+    }
+    .soldium-cut-panel::before { top: 0; right: 0; }
+    .soldium-cut-panel::after { bottom: 0; left: 0; }
+    .soldium-brand-logo {
+      filter: drop-shadow(0 0 15px rgba(59, 130, 246, 0.3));
+    }
+  </style>
+</head>
+<body class="h-full bg-surface-950 text-slate-100 font-sans antialiased flex items-center justify-center p-4">
+  <div class="w-full max-w-md">
+    <header class="text-center mb-8">
+      <div class="inline-flex flex-col items-center gap-5">
+        <div class="flex h-40 w-40 shrink-0 items-center justify-center">
+          <img
+            src="/assets/logo.png"
+            alt="سولديوم"
+            width="160"
+            height="160"
+            decoding="async"
+            class="soldium-brand-logo h-auto w-40 max-h-40 object-contain"
+          />
+        </div>
+        <p class="text-sm text-slate-400">لوحة تحكم الأدمن — تسجيل الدخول</p>
+      </div>
+    </header>
+
+    <div class="soldium-cut-panel p-6 sm:p-8 shadow-2xl shadow-black/40">
+      <div id="alert" class="hidden mb-4 rounded-lg border px-4 py-3 text-sm" role="alert"></div>
+
+      <form id="login-form" class="space-y-5" autocomplete="on">
+        <div>
+          <label for="username" class="block text-xs font-medium text-slate-400 mb-1.5">اسم المستخدم</label>
+          <input
+            id="username"
+            name="username"
+            type="text"
+            required
+            autocomplete="username"
+            class="w-full rounded-lg border border-slate-600 bg-surface-800 px-3 py-2.5 text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-accent-500"
+            placeholder="أدخل اسم المستخدم"
+          />
+        </div>
+        <div>
+          <label for="password" class="block text-xs font-medium text-slate-400 mb-1.5">كلمة المرور</label>
+          <input
+            id="password"
+            name="password"
+            type="password"
+            required
+            autocomplete="current-password"
+            class="w-full rounded-lg border border-slate-600 bg-surface-800 px-3 py-2.5 text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-accent-500"
+            placeholder="أدخل كلمة المرور"
+          />
+        </div>
+        <label class="flex items-center gap-2 cursor-pointer select-none">
+          <input
+            id="remember-me"
+            name="remember_me"
+            type="checkbox"
+            checked
+            class="h-4 w-4 rounded border-slate-600 bg-surface-800 text-accent-500 focus:ring-accent-500"
+          />
+          <span class="text-sm text-slate-300">تذكرني — البقاء مسجّل الدخول على هذا الجهاز</span>
+        </label>
+        <button
+          id="login-btn"
+          type="submit"
+          class="w-full rounded-lg bg-gradient-to-l from-accent-600 to-indigo-600 hover:from-accent-500 hover:to-indigo-500 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-accent-500/20 disabled:opacity-50"
+        >
+          دخول لوحة التحكم
+        </button>
+      </form>
+    </div>
+
+    <p class="mt-6 text-center text-xs text-slate-600">سولديوم · وصول محمي للمسؤولين فقط</p>
+  </div>
+
+  <script>
+    const STORAGE_USERNAME = "soldium_admin_username";
+    const STORAGE_REMEMBER = "soldium_admin_remember_me";
+    const form = document.getElementById("login-form");
+    const alertEl = document.getElementById("alert");
+    const loginBtn = document.getElementById("login-btn");
+    const usernameInput = document.getElementById("username");
+    const rememberInput = document.getElementById("remember-me");
+    const params = new URLSearchParams(window.location.search);
+    const nextPath = params.get("next") || "/";
+
+    try {
+      const savedUser = localStorage.getItem(STORAGE_USERNAME);
+      if (savedUser) usernameInput.value = savedUser;
+      const savedRemember = localStorage.getItem(STORAGE_REMEMBER);
+      if (savedRemember !== null) rememberInput.checked = savedRemember === "1";
+    } catch (_) { /* private mode */ }
+
+    (async function redirectIfAlreadyLoggedIn() {
+      try {
+        const res = await fetch("/api/auth/session", { credentials: "same-origin" });
+        if (res.ok) {
+          window.location.replace(nextPath.startsWith("/") ? nextPath : "/");
+        }
+      } catch (_) { /* offline */ }
+    })();
+
+    function showAlert(message) {
+      alertEl.textContent = message;
+      alertEl.className =
+        "mb-4 rounded-lg border border-red-900/60 bg-red-950/40 px-4 py-3 text-sm text-red-200";
+      alertEl.classList.remove("hidden");
+    }
+
+    function parseDetail(body) {
+      const d = body?.detail;
+      if (typeof d === "string") return d;
+      return "فشل تسجيل الدخول.";
+    }
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      alertEl.classList.add("hidden");
+      loginBtn.disabled = true;
+      try {
+        const response = await fetch("/api/auth/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({
+            username: usernameInput.value.trim(),
+            password: document.getElementById("password").value,
+            remember_me: rememberInput.checked,
+          }),
+        });
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(parseDetail(body));
+        try {
+          localStorage.setItem(STORAGE_USERNAME, usernameInput.value.trim());
+          localStorage.setItem(STORAGE_REMEMBER, rememberInput.checked ? "1" : "0");
+        } catch (_) { /* private mode */ }
+        window.location.href = nextPath.startsWith("/") ? nextPath : "/";
+      } catch (err) {
+        showAlert(err.message || "تعذّر تسجيل الدخول.");
+      } finally {
+        loginBtn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

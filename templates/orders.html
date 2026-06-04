@@ -1,0 +1,1122 @@
+{% extends "base.html" %}
+
+
+
+{% block title %}{{ page_title }} — الطلبات{% endblock %}
+
+
+
+{% block header_actions %}
+
+<button
+
+  id="refresh-btn"
+
+  type="button"
+
+  class="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-surface-800 px-3 py-2 text-sm font-medium text-slate-200 hover:bg-surface-700 hover:border-slate-600 transition disabled:opacity-50"
+
+>
+
+  <svg id="refresh-icon" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+
+    <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v6h6M20 20v-6h-6M5 19a9 9 0 0114-7.5M19 5a9 9 0 00-14 7.5" />
+
+  </svg>
+
+  تحديث
+
+</button>
+
+{% endblock %}
+
+
+
+{% block content %}
+
+<section class="space-y-6">
+
+  <div class="flex flex-col sm:flex-row sm:items-end sm:justify-end gap-4">
+
+    <div class="rounded-xl border border-slate-800 bg-surface-900 px-4 py-3 min-w-[120px] ms-auto">
+
+      <p class="text-xs uppercase tracking-wider text-slate-500">إجمالي الطلبات</p>
+
+      <p id="orders-total" class="mt-1 text-2xl font-semibold text-accent-400">—</p>
+
+    </div>
+
+  </div>
+
+
+
+  <div class="flex flex-col lg:flex-row gap-3">
+
+    <div class="flex-1 relative">
+
+      <label for="search-input" class="sr-only">بحث</label>
+
+      <input
+
+        id="search-input"
+
+        type="search"
+
+        placeholder="بحث برقم الطلب لدى المزوّد أو معرّف المستخدم…"
+
+        class="w-full rounded-lg border border-slate-700 bg-surface-900 py-2.5 ps-10 pe-4 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-accent-500"
+
+      />
+
+      <svg class="absolute start-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+
+        <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+
+      </svg>
+
+    </div>
+
+    <div class="sm:w-52">
+
+      <label for="status-filter" class="sr-only">تصفية الحالة</label>
+
+      <select
+
+        id="status-filter"
+
+        class="w-full rounded-lg border border-slate-700 bg-surface-900 px-3 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-accent-500"
+
+      >
+
+        <option value="">كل الحالات</option>
+
+        <option value="pending">قيد الانتظار</option>
+
+        <option value="in progress">قيد التنفيذ</option>
+
+        <option value="completed">مكتمل</option>
+
+        <option value="partial">مكتمل جزئياً</option>
+
+        <option value="canceled">ملغي</option>
+
+        <option value="refunded">مسترد</option>
+
+        <option value="failed">فشل التنفيذ</option>
+
+      </select>
+
+    </div>
+
+    <button
+
+      id="search-btn"
+
+      type="button"
+
+      class="rounded-lg bg-accent-600 hover:bg-accent-500 px-4 py-2.5 text-sm font-medium text-white shrink-0"
+
+    >
+
+      تطبيق
+
+    </button>
+
+  </div>
+
+
+
+  <div id="alert" class="hidden rounded-lg border px-4 py-3 text-sm" role="alert"></div>
+
+
+
+  <div class="rounded-xl border border-slate-800 bg-surface-900 overflow-hidden shadow-xl shadow-black/20">
+
+    <div id="loading" class="flex items-center justify-center gap-3 py-16 text-slate-400">
+
+      <svg class="h-5 w-5 animate-spin" viewBox="0 0 24 24" fill="none">
+
+        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+
+        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+
+      </svg>
+
+      جاري تحميل الطلبات…
+
+    </div>
+
+
+
+    <div id="empty-state" class="hidden py-16 text-center">
+
+      <p class="text-slate-300 font-medium">لا توجد طلبات</p>
+
+      <p class="mt-1 text-sm text-slate-500">جرّب معايير تصفية أو بحث أخرى.</p>
+
+    </div>
+
+
+
+    <div id="table-wrap" class="hidden overflow-x-auto">
+
+      <table class="min-w-full text-sm text-start">
+
+        <thead class="bg-surface-800/80 text-xs uppercase tracking-wider text-slate-400">
+
+          <tr>
+
+            <th class="px-4 py-3 font-medium">المعرّف</th>
+
+            <th class="px-4 py-3 font-medium">رقم المزوّد</th>
+
+            <th class="px-4 py-3 font-medium">المستخدم</th>
+
+            <th class="px-4 py-3 font-medium">الخدمة</th>
+
+            <th class="px-4 py-3 font-medium">الرابط</th>
+
+            <th class="px-4 py-3 font-medium">الكمية</th>
+
+            <th class="px-4 py-3 font-medium">المبلغ</th>
+
+            <th class="px-4 py-3 font-medium">الحالة</th>
+
+            <th class="px-4 py-3 font-medium">التاريخ</th>
+
+            <th class="px-4 py-3 font-medium text-end">الإجراءات</th>
+
+          </tr>
+
+        </thead>
+
+        <tbody id="orders-body" class="divide-y divide-slate-800/80"></tbody>
+
+      </table>
+
+    </div>
+
+
+
+    <div id="pagination" class="hidden border-t border-slate-800 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+
+      <p id="page-info" class="text-xs text-slate-500"></p>
+
+      <div class="flex gap-2">
+
+        <button id="prev-page" type="button" class="rounded-lg border border-slate-600 px-3 py-1.5 text-xs text-slate-300 hover:bg-surface-800 disabled:opacity-40">
+
+          السابق
+
+        </button>
+
+        <button id="next-page" type="button" class="rounded-lg border border-slate-600 px-3 py-1.5 text-xs text-slate-300 hover:bg-surface-800 disabled:opacity-40">
+
+          التالي
+
+        </button>
+
+      </div>
+
+    </div>
+
+  </div>
+
+</section>
+
+
+
+<!-- نافذة تعديل حالة الطلب -->
+
+<div id="status-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4" aria-hidden="true">
+
+  <div id="status-modal-backdrop" class="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
+
+  <div class="relative w-full max-w-md rounded-xl border border-slate-700 bg-surface-900 shadow-2xl p-6 space-y-4">
+
+    <div class="flex items-start justify-between gap-3">
+
+      <div>
+
+        <h2 class="text-lg font-semibold text-white">تعديل حالة الطلب</h2>
+
+        <p class="text-sm text-slate-400 mt-1">
+
+          الطلب <span id="modal-order-label" class="font-mono text-slate-200"></span>
+
+        </p>
+
+      </div>
+
+      <button id="status-modal-close" type="button" class="text-slate-400 hover:text-white text-xl leading-none" aria-label="إغلاق">×</button>
+
+    </div>
+
+
+
+    <dl class="text-sm rounded-lg border border-slate-800 bg-surface-800/50 p-3 space-y-2">
+
+      <div class="flex justify-between gap-2">
+
+        <dt class="text-slate-500">المستخدم</dt>
+
+        <dd id="modal-user" class="text-slate-200 text-end">—</dd>
+
+      </div>
+
+      <div class="flex justify-between gap-2">
+
+        <dt class="text-slate-500">الخدمة</dt>
+
+        <dd id="modal-service" class="text-slate-200 text-end truncate max-w-[200px]">—</dd>
+
+      </div>
+
+      <div class="flex justify-between gap-2">
+
+        <dt class="text-slate-500">المبلغ</dt>
+
+        <dd id="modal-amount" class="text-emerald-300 font-semibold">—</dd>
+
+      </div>
+
+      <div class="flex justify-between gap-2">
+
+        <dt class="text-slate-500">الحالة الحالية</dt>
+
+        <dd id="modal-current-status">—</dd>
+
+      </div>
+
+    </dl>
+
+
+
+    <p id="refund-warning" class="hidden text-xs text-amber-200/90 bg-amber-950/30 border border-amber-900/50 rounded-lg px-3 py-2">
+
+      عند اختيار «ملغي» أو «مسترد» أو «فشل التنفيذ» سيتم استرجاع المبلغ المتبقي إلى رصيد المستخدم تلقائياً.
+
+    </p>
+
+
+
+    <div>
+
+      <label for="new-status-select" class="block text-xs font-medium text-slate-400 mb-1">الحالة الجديدة</label>
+
+      <select
+
+        id="new-status-select"
+
+        class="w-full rounded-lg border border-slate-600 bg-surface-800 px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-accent-500"
+
+      >
+
+        <option value="pending">قيد الانتظار</option>
+
+        <option value="in progress">قيد التنفيذ</option>
+
+        <option value="processing">قيد التنفيذ (معالجة)</option>
+
+        <option value="submitted">مُرسَل للمزوّد</option>
+
+        <option value="completed">مكتمل</option>
+
+        <option value="partial">مكتمل جزئياً</option>
+
+        <option value="canceled">ملغي</option>
+
+        <option value="refunded">مسترد</option>
+
+        <option value="failed">فشل التنفيذ</option>
+
+      </select>
+
+    </div>
+
+
+
+    <button
+
+      id="save-status-btn"
+
+      type="button"
+
+      class="w-full rounded-lg bg-accent-600 hover:bg-accent-500 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+
+    >
+
+      حفظ الحالة
+
+    </button>
+
+  </div>
+
+</div>
+
+{% endblock %}
+
+
+
+{% block scripts %}
+
+<script>
+
+  const API_BASE = "/api/orders";
+
+
+
+  const STATUS_LABELS = {
+
+    submitted: "قيد الانتظار",
+
+    pending: "قيد الانتظار",
+
+    "in progress": "قيد التنفيذ",
+
+    processing: "قيد التنفيذ",
+
+    completed: "مكتمل",
+
+    canceled: "ملغي",
+
+    cancelled: "ملغي",
+
+    partial: "مكتمل جزئياً",
+
+    refunded: "مسترد",
+
+    failed: "فشل التنفيذ",
+
+  };
+
+
+
+  const REFUND_STATUSES = new Set(["canceled", "cancelled", "refunded", "failed"]);
+
+
+
+  const state = {
+
+    page: 1,
+
+    limit: 50,
+
+    status: "",
+
+    search: "",
+
+    total: 0,
+
+    totalPages: 1,
+
+    orders: [],
+
+    selectedOrder: null,
+
+  };
+
+
+
+  const els = {
+
+    alert: document.getElementById("alert"),
+
+    loading: document.getElementById("loading"),
+
+    empty: document.getElementById("empty-state"),
+
+    tableWrap: document.getElementById("table-wrap"),
+
+    tbody: document.getElementById("orders-body"),
+
+    total: document.getElementById("orders-total"),
+
+    searchInput: document.getElementById("search-input"),
+
+    statusFilter: document.getElementById("status-filter"),
+
+    searchBtn: document.getElementById("search-btn"),
+
+    refreshBtn: document.getElementById("refresh-btn"),
+
+    refreshIcon: document.getElementById("refresh-icon"),
+
+    pagination: document.getElementById("pagination"),
+
+    pageInfo: document.getElementById("page-info"),
+
+    prevPage: document.getElementById("prev-page"),
+
+    nextPage: document.getElementById("next-page"),
+
+  };
+
+
+
+  const modal = {
+
+    root: document.getElementById("status-modal"),
+
+    backdrop: document.getElementById("status-modal-backdrop"),
+
+    close: document.getElementById("status-modal-close"),
+
+    label: document.getElementById("modal-order-label"),
+
+    user: document.getElementById("modal-user"),
+
+    service: document.getElementById("modal-service"),
+
+    amount: document.getElementById("modal-amount"),
+
+    currentStatus: document.getElementById("modal-current-status"),
+
+    statusSelect: document.getElementById("new-status-select"),
+
+    refundWarning: document.getElementById("refund-warning"),
+
+    saveBtn: document.getElementById("save-status-btn"),
+
+  };
+
+
+
+  function normalizeStatusKey(status) {
+
+    const s = String(status || "").trim().toLowerCase().replace(/_/g, " ");
+
+    if (s === "cancelled") return "canceled";
+
+    return s;
+
+  }
+
+
+
+  function statusLabel(status) {
+
+    const key = normalizeStatusKey(status);
+
+    return STATUS_LABELS[key] || status || "—";
+
+  }
+
+
+
+  function statusBadgeClass(status) {
+
+    const key = normalizeStatusKey(status);
+
+    if (key === "completed") {
+
+      return "bg-emerald-500/10 text-emerald-300 border-emerald-500/30";
+
+    }
+
+    if (key === "pending" || key === "submitted") {
+
+      return "bg-amber-500/10 text-amber-300 border-amber-500/30";
+
+    }
+
+    if (key === "in progress" || key === "processing") {
+
+      return "bg-sky-500/10 text-sky-300 border-sky-500/30";
+
+    }
+
+    if (key === "partial") {
+
+      return "bg-yellow-500/10 text-yellow-300 border-yellow-500/30";
+
+    }
+
+    if (key === "canceled" || key === "refunded" || key === "failed") {
+
+      return "bg-red-500/10 text-red-300 border-red-500/30";
+
+    }
+
+    return "bg-slate-500/10 text-slate-300 border-slate-500/30";
+
+  }
+
+
+
+  function statusBadgeHtml(status) {
+
+    return `<span class="inline-flex rounded-md border px-2 py-0.5 text-xs font-medium ${statusBadgeClass(status)}">${escapeHtml(statusLabel(status))}</span>`;
+
+  }
+
+
+
+  function showAlert(message, type = "error") {
+
+    els.alert.textContent = message;
+
+    els.alert.className =
+
+      "rounded-lg border px-4 py-3 text-sm " +
+
+      (type === "error"
+
+        ? "border-red-900/60 bg-red-950/40 text-red-200"
+
+        : "border-emerald-900/60 bg-emerald-950/40 text-emerald-200");
+
+    els.alert.classList.remove("hidden");
+
+  }
+
+
+
+  function hideAlert() {
+
+    els.alert.classList.add("hidden");
+
+  }
+
+
+
+  function formatDh(value) {
+
+    const n = Number(value);
+
+    if (Number.isNaN(n)) return "—";
+
+    return n.toLocaleString("ar-MA", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " درهم";
+
+  }
+
+
+
+  function formatDate(iso) {
+
+    if (!iso) return "—";
+
+    try {
+
+      const d = new Date(iso.replace(" ", "T"));
+
+      if (Number.isNaN(d.getTime())) return iso;
+
+      return d.toLocaleString("ar-MA", {
+
+        year: "numeric",
+
+        month: "short",
+
+        day: "numeric",
+
+        hour: "2-digit",
+
+        minute: "2-digit",
+
+      });
+
+    } catch {
+
+      return iso;
+
+    }
+
+  }
+
+
+
+  function escapeHtml(text) {
+
+    const div = document.createElement("div");
+
+    div.textContent = text ?? "";
+
+    return div.innerHTML;
+
+  }
+
+
+
+  function truncateLink(link, max = 32) {
+
+    const s = String(link || "");
+
+    if (s.length <= max) return escapeHtml(s);
+
+    return escapeHtml(s.slice(0, max) + "…");
+
+  }
+
+
+
+  function parseErrorDetail(body) {
+
+    const detail = body?.detail;
+
+    if (!detail) return "فشل تنفيذ الطلب.";
+
+    if (typeof detail === "string") return detail;
+
+    if (detail.message) return detail.message;
+
+    if (Array.isArray(detail)) {
+
+      const msgs = detail.map((item) => item.msg).filter(Boolean);
+
+      if (msgs.length) return msgs.join(" ");
+
+    }
+
+    return "حدث خطأ غير متوقع.";
+
+  }
+
+
+
+  async function fetchJson(url, options) {
+
+    const response = await fetch(url, {
+      credentials: "same-origin",
+      ...options,
+    });
+
+    const body = await response.json().catch(() => ({}));
+
+    if (!response.ok) throw new Error(parseErrorDetail(body));
+
+    return body;
+
+  }
+
+
+
+  function userProfileHref(userId) {
+    return `/dashboard/users/${Number(userId)}`;
+  }
+
+  function userProfileLink(userId, innerHtml) {
+    return `<a href="${userProfileHref(userId)}" class="text-blue-400 hover:text-blue-300 underline font-bold" target="_blank" rel="noopener">${innerHtml}</a>`;
+  }
+
+  function userDisplayName(order) {
+    const uid = order.user_id;
+    return order.telegram_name
+      ? userProfileLink(uid, escapeHtml(order.telegram_name))
+      : userProfileLink(uid, `<span class="font-mono">${uid}</span>`);
+  }
+
+
+
+  function renderRow(order) {
+
+    const providerId = order.provider_order_id
+
+      ? escapeHtml(order.provider_order_id)
+
+      : '<span class="text-slate-500">—</span>';
+
+    return `
+
+      <tr class="hover:bg-surface-800/40 transition" data-order-id="${order.id}">
+
+        <td class="px-4 py-3 font-mono text-slate-300">${order.id}</td>
+
+        <td class="px-4 py-3 font-mono text-xs text-slate-400">${providerId}</td>
+
+        <td class="px-4 py-3">${userDisplayName(order)}</td>
+
+        <td class="px-4 py-3 text-slate-200 max-w-[140px] truncate" title="${escapeHtml(order.service_name)}">${escapeHtml(order.service_name)}</td>
+
+        <td class="px-4 py-3 text-xs text-slate-400 max-w-[120px]">
+
+          <a href="${escapeHtml(order.link)}" target="_blank" rel="noopener" class="hover:text-accent-300">${truncateLink(order.link)}</a>
+
+        </td>
+
+        <td class="px-4 py-3 text-slate-300">${order.quantity}</td>
+
+        <td class="px-4 py-3 font-semibold text-emerald-300">${formatDh(order.amount)}</td>
+
+        <td class="px-4 py-3">${statusBadgeHtml(order.status)}</td>
+
+        <td class="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">${formatDate(order.created_at)}</td>
+
+        <td class="px-4 py-3 text-end">
+
+          <button
+
+            type="button"
+
+            class="order-action-btn rounded-lg border border-slate-600 bg-surface-800 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-surface-700 hover:border-accent-500/50"
+
+            data-order-id="${order.id}"
+
+          >
+
+            الإجراءات
+
+          </button>
+
+        </td>
+
+      </tr>
+
+    `;
+
+  }
+
+
+
+  function updateRowInTable(order) {
+
+    const row = els.tbody.querySelector(`tr[data-order-id="${order.id}"]`);
+
+    if (row) row.outerHTML = renderRow(order);
+
+  }
+
+
+
+  function fillModal(order) {
+
+    state.selectedOrder = order;
+
+    const displayNum = order.provider_order_id || `#${order.id}`;
+
+    modal.label.textContent = displayNum;
+
+    const name = order.telegram_name ? order.telegram_name : `معرّف ${order.user_id}`;
+
+    modal.user.textContent = `${name} (#${order.user_id})`;
+
+    modal.service.textContent = order.service_name || "—";
+
+    modal.amount.textContent = formatDh(order.amount);
+
+    modal.currentStatus.innerHTML = statusBadgeHtml(order.status);
+
+    const key = normalizeStatusKey(order.status);
+
+    const selectVal = ["in progress", "processing"].includes(key) ? key : key || "pending";
+
+    if ([...modal.statusSelect.options].some((o) => o.value === selectVal)) {
+
+      modal.statusSelect.value = selectVal;
+
+    }
+
+    updateRefundWarning();
+
+  }
+
+
+
+  function updateRefundWarning() {
+
+    const key = normalizeStatusKey(modal.statusSelect.value);
+
+    modal.refundWarning.classList.toggle("hidden", !REFUND_STATUSES.has(key));
+
+  }
+
+
+
+  function openModal(order) {
+
+    fillModal(order);
+
+    modal.root.classList.remove("hidden");
+
+  }
+
+
+
+  function closeModal() {
+
+    state.selectedOrder = null;
+
+    modal.root.classList.add("hidden");
+
+  }
+
+
+
+  function setLoading(isLoading) {
+
+    els.refreshBtn.disabled = isLoading;
+
+    els.refreshIcon.classList.toggle("animate-spin", isLoading);
+
+    if (isLoading) els.loading.classList.remove("hidden");
+
+    else els.loading.classList.add("hidden");
+
+  }
+
+
+
+  function updatePagination() {
+
+    els.pageInfo.textContent = `الصفحة ${state.page} من ${state.totalPages} — ${state.total} طلب`;
+
+    els.prevPage.disabled = state.page <= 1;
+
+    els.nextPage.disabled = state.page >= state.totalPages;
+
+    els.pagination.classList.toggle("hidden", state.total === 0);
+
+  }
+
+
+
+  async function loadOrders() {
+
+    hideAlert();
+
+    setLoading(true);
+
+    els.empty.classList.add("hidden");
+
+    els.tableWrap.classList.add("hidden");
+
+
+
+    const params = new URLSearchParams({
+
+      page: String(state.page),
+
+      limit: String(state.limit),
+
+    });
+
+    if (state.status) params.set("status", state.status);
+
+    if (state.search) params.set("search", state.search);
+
+
+
+    try {
+
+      const data = await fetchJson(`${API_BASE}?${params}`);
+
+      state.orders = data.orders ?? [];
+
+      state.total = data.total ?? 0;
+
+      state.totalPages = data.total_pages ?? 1;
+
+      state.page = data.page ?? state.page;
+
+
+
+      els.total.textContent = String(state.total);
+
+      updatePagination();
+
+
+
+      if (state.orders.length === 0) {
+
+        els.empty.classList.remove("hidden");
+
+        els.tbody.innerHTML = "";
+
+        return;
+
+      }
+
+
+
+      els.tbody.innerHTML = state.orders.map(renderRow).join("");
+
+      els.tableWrap.classList.remove("hidden");
+
+    } catch (err) {
+
+      els.total.textContent = "—";
+
+      showAlert(err.message || "تعذّر تحميل قائمة الطلبات.");
+
+    } finally {
+
+      setLoading(false);
+
+    }
+
+  }
+
+
+
+  async function saveOrderStatus() {
+
+    const order = state.selectedOrder;
+
+    if (!order) return;
+
+    const newStatus = modal.statusSelect.value;
+
+    if (!newStatus) {
+
+      showAlert("اختر حالةً صالحة.");
+
+      return;
+
+    }
+
+
+
+    modal.saveBtn.disabled = true;
+
+    try {
+
+      const result = await fetchJson(`${API_BASE}/${order.id}/status`, {
+
+        method: "PATCH",
+
+        headers: { "Content-Type": "application/json" },
+
+        body: JSON.stringify({ status: newStatus }),
+
+      });
+
+      const updated = result.order;
+
+      const idx = state.orders.findIndex((o) => o.id === updated.id);
+
+      if (idx >= 0) state.orders[idx] = updated;
+
+      updateRowInTable(updated);
+
+      let msg = `تم تحديث حالة الطلب إلى «${statusLabel(updated.status)}».`;
+
+      if (Number(result.refunded_dh) > 0) {
+
+        msg += ` تم استرجاع ${formatDh(result.refunded_dh)} إلى رصيد المستخدم.`;
+
+      }
+
+      showAlert(msg, "success");
+
+      closeModal();
+
+    } catch (err) {
+
+      showAlert(err.message || "فشل تحديث حالة الطلب.");
+
+    } finally {
+
+      modal.saveBtn.disabled = false;
+
+    }
+
+  }
+
+
+
+  els.tbody.addEventListener("click", (e) => {
+
+    const btn = e.target.closest(".order-action-btn");
+
+    if (!btn) return;
+
+    const orderId = Number(btn.dataset.orderId);
+
+    const order = state.orders.find((o) => o.id === orderId);
+
+    if (order) openModal(order);
+
+  });
+
+
+
+  els.searchBtn.addEventListener("click", () => {
+
+    state.search = els.searchInput.value.trim();
+
+    state.status = els.statusFilter.value;
+
+    state.page = 1;
+
+    loadOrders();
+
+  });
+
+
+
+  els.searchInput.addEventListener("keydown", (e) => {
+
+    if (e.key === "Enter") {
+
+      state.search = els.searchInput.value.trim();
+
+      state.status = els.statusFilter.value;
+
+      state.page = 1;
+
+      loadOrders();
+
+    }
+
+  });
+
+
+
+  els.statusFilter.addEventListener("change", () => {
+
+    state.status = els.statusFilter.value;
+
+    state.page = 1;
+
+    loadOrders();
+
+  });
+
+
+
+  els.prevPage.addEventListener("click", () => {
+
+    if (state.page > 1) {
+
+      state.page -= 1;
+
+      loadOrders();
+
+    }
+
+  });
+
+
+
+  els.nextPage.addEventListener("click", () => {
+
+    if (state.page < state.totalPages) {
+
+      state.page += 1;
+
+      loadOrders();
+
+    }
+
+  });
+
+
+
+  els.refreshBtn.addEventListener("click", loadOrders);
+
+  modal.backdrop.addEventListener("click", closeModal);
+
+  modal.close.addEventListener("click", closeModal);
+
+  modal.statusSelect.addEventListener("change", updateRefundWarning);
+
+  modal.saveBtn.addEventListener("click", saveOrderStatus);
+
+
+
+  loadOrders();
+
+</script>
+
+{% endblock %}
+

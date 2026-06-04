@@ -1,0 +1,455 @@
+{% extends "base.html" %}
+
+{% block title %}{{ page_title }}{% endblock %}
+
+{% block content %}
+<style>
+  .broadcast-toolbar-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    min-width: 2.25rem;
+    height: 2.25rem;
+    padding: 0 0.5rem;
+    border-radius: 0.5rem;
+    border: 1px solid rgba(51, 65, 85, 0.9);
+    background: rgba(26, 34, 52, 0.85);
+    color: #cbd5e1;
+    font-size: 0.75rem;
+    font-weight: 600;
+    transition: color 0.15s, background 0.15s, border-color 0.15s, box-shadow 0.15s;
+  }
+  .broadcast-toolbar-btn:hover {
+    color: #f8fafc;
+    border-color: rgba(14, 165, 233, 0.55);
+    background: rgba(30, 58, 95, 0.55);
+    box-shadow: 0 0 0 1px rgba(14, 165, 233, 0.15);
+  }
+  .broadcast-toolbar-btn:focus-visible {
+    outline: 2px solid #0ea5e9;
+    outline-offset: 2px;
+  }
+  .broadcast-toolbar-btn kbd {
+    font-family: ui-monospace, monospace;
+    font-size: 0.7rem;
+    opacity: 0.9;
+  }
+  .tg-preview-bubble {
+    position: relative;
+    max-width: 100%;
+    padding: 0.65rem 0.85rem 0.55rem;
+    border-radius: 0 0.75rem 0.75rem 0.75rem;
+    background: linear-gradient(145deg, #1e3a5f 0%, #172554 100%);
+    border: 1px solid rgba(56, 189, 248, 0.2);
+    box-shadow: 0 4px 24px -8px rgba(0, 0, 0, 0.55);
+    color: #f1f5f9;
+    font-size: 0.9rem;
+    line-height: 1.55;
+    word-wrap: break-word;
+    overflow-wrap: anywhere;
+  }
+  .tg-preview-bubble::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    inset-inline-end: -6px;
+    width: 0;
+    height: 0;
+    border: 6px solid transparent;
+    border-inline-end: none;
+    border-top-color: #1e3a5f;
+  }
+  .tg-preview-bubble b,
+  .tg-preview-bubble strong { font-weight: 700; }
+  .tg-preview-bubble i,
+  .tg-preview-bubble em { font-style: italic; }
+  .tg-preview-bubble u,
+  .tg-preview-bubble ins { text-decoration: underline; }
+  .tg-preview-bubble s,
+  .tg-preview-bubble strike,
+  .tg-preview-bubble del { text-decoration: line-through; opacity: 0.9; }
+  .tg-preview-bubble code {
+    font-family: ui-monospace, monospace;
+    font-size: 0.85em;
+    padding: 0.1em 0.35em;
+    border-radius: 0.25rem;
+    background: rgba(15, 23, 42, 0.65);
+    border: 1px solid rgba(71, 85, 105, 0.5);
+  }
+  .tg-preview-bubble a {
+    color: #7dd3fc;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .tg-preview-bubble a:hover { color: #bae6fd; }
+  .tg-preview-empty {
+    color: #64748b;
+    font-size: 0.8rem;
+    font-style: italic;
+  }
+</style>
+
+<section class="max-w-3xl space-y-6">
+  <div id="alert" class="hidden rounded-lg border px-4 py-3 text-sm" role="alert"></div>
+
+  <form id="broadcast-form" class="soldium-cut-card p-6 space-y-5">
+    <div>
+      <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+        <label for="message-html" class="block text-sm font-medium text-slate-300">
+          نص الرسالة
+        </label>
+        <span class="text-[11px] text-slate-500">وسوم HTML المدعومة في تيليغرام فقط</span>
+      </div>
+
+      <div
+        class="rounded-t-lg border border-b-0 border-slate-600 bg-surface-900/80 px-2 py-2 flex flex-wrap items-center gap-1.5"
+        role="toolbar"
+        aria-label="أدوات تنسيق الرسالة"
+      >
+        <button type="button" class="broadcast-toolbar-btn" data-format="b" title="عريض — يُطبَّق على النص المحدد">
+          <kbd dir="ltr">B</kbd>
+          <span class="hidden sm:inline">عريض</span>
+        </button>
+        <button type="button" class="broadcast-toolbar-btn" data-format="i" title="مائل">
+          <kbd dir="ltr" class="italic">I</kbd>
+          <span class="hidden sm:inline">مائل</span>
+        </button>
+        <button type="button" class="broadcast-toolbar-btn" data-format="u" title="تسطير">
+          <kbd dir="ltr" class="underline">U</kbd>
+          <span class="hidden sm:inline">تسطير</span>
+        </button>
+        <button type="button" class="broadcast-toolbar-btn" data-format="s" title="شطب">
+          <kbd dir="ltr" class="line-through">S</kbd>
+          <span class="hidden sm:inline">شطب</span>
+        </button>
+        <span class="w-px h-6 bg-slate-700/80 mx-0.5" aria-hidden="true"></span>
+        <button type="button" class="broadcast-toolbar-btn" data-format="code" title="كود — نص أحادي المسافة">
+          <kbd dir="ltr">&lt;/&gt;</kbd>
+          <span class="hidden sm:inline">كود</span>
+        </button>
+        <button type="button" class="broadcast-toolbar-btn" data-format="a" title="رابط — يطلب عنوان URL">
+          <span aria-hidden="true">🔗</span>
+          <span class="hidden sm:inline">رابط</span>
+        </button>
+      </div>
+
+      <textarea
+        id="message-html"
+        name="message_html"
+        rows="10"
+        maxlength="4000"
+        required
+        placeholder="اكتب رسالة البث هنا… استخدم شريط الأدوات أعلاه للتنسيق دون كتابة الوسوم يدويًا."
+        class="w-full rounded-b-lg border border-slate-600 bg-surface-800 px-4 py-3 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-accent-500 resize-y leading-relaxed"
+        dir="auto"
+      ></textarea>
+      <p class="mt-2 text-xs text-slate-500">
+        <span id="char-count">0</span> / 4000 حرف
+      </p>
+    </div>
+
+    <div class="space-y-2">
+      <div class="flex items-center justify-between gap-2">
+        <h2 class="text-sm font-semibold text-slate-200">معاينة حية</h2>
+        <span class="text-[11px] text-slate-500">كما ستظهر تقريبًا في تيليغرام</span>
+      </div>
+      <div
+        class="rounded-xl border border-slate-700/80 bg-surface-950/60 p-4 min-h-[5.5rem]"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        <div class="flex justify-start" dir="auto">
+          <div id="live-preview" class="tg-preview-bubble w-full max-w-full">
+            <p class="tg-preview-empty m-0">ستظهر معاينة الرسالة هنا أثناء الكتابة…</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <p class="text-[11px] text-slate-500 leading-relaxed border-t border-slate-800/80 pt-3">
+      يُرسل البث لجميع المستخدمين المسجّلين. التنسيقات المسموحة: عريض، مائل، تسطير، شطب، كود، ورابط فقط.
+    </p>
+
+    <div id="loading-state" class="hidden rounded-lg border border-amber-900/50 bg-amber-950/30 px-4 py-3 flex items-center gap-3 text-sm text-amber-200">
+      <svg class="h-5 w-5 animate-spin shrink-0" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+      </svg>
+      <span>جاري الإرسال… الرجاء عدم إغلاق الصفحة حتى اكتمال العملية.</span>
+    </div>
+
+    <button
+      id="submit-btn"
+      type="submit"
+      class="w-full rounded-lg bg-gradient-to-l from-accent-600 to-indigo-600 hover:from-accent-500 hover:to-indigo-500 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-accent-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition"
+    >
+      إرسال البث للجميع
+    </button>
+  </form>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const form = document.getElementById("broadcast-form");
+  const textarea = document.getElementById("message-html");
+  const charCount = document.getElementById("char-count");
+  const submitBtn = document.getElementById("submit-btn");
+  const loadingState = document.getElementById("loading-state");
+  const alertEl = document.getElementById("alert");
+  const livePreview = document.getElementById("live-preview");
+  const toolbar = document.querySelector('[role="toolbar"]');
+
+  const ALLOWED_TAGS = new Set([
+    "b", "strong", "i", "em", "u", "ins", "s", "strike", "del",
+    "code", "pre", "a", "span", "br",
+  ]);
+  const TAG_ALIASES = {
+    strong: "b",
+    em: "i",
+    ins: "u",
+    strike: "s",
+    del: "s",
+  };
+  const SAFE_HREF = /^(https?:|tg:|mailto:)/i;
+
+  function showAlert(message, type = "error") {
+    alertEl.textContent = message;
+    alertEl.className =
+      "rounded-lg border px-4 py-3 text-sm " +
+      (type === "error"
+        ? "border-red-900/60 bg-red-950/40 text-red-200"
+        : "border-emerald-900/60 bg-emerald-950/40 text-emerald-200");
+    alertEl.classList.remove("hidden");
+  }
+
+  function hideAlert() {
+    alertEl.classList.add("hidden");
+  }
+
+  function parseDetail(body) {
+    const detail = body?.detail;
+    if (typeof detail === "string") return detail;
+    return "فشل إرسال البث.";
+  }
+
+  function escapeAttr(value) {
+    return String(value)
+      .replace(/&/g, "&amp;")
+      .replace(/"/g, "&quot;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+  }
+
+  function sanitizeNode(node, out) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      out.appendChild(document.createTextNode(node.textContent));
+      return;
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) return;
+
+    let tag = node.tagName.toLowerCase();
+    if (TAG_ALIASES[tag]) tag = TAG_ALIASES[tag];
+
+    if (tag === "br") {
+      out.appendChild(document.createElement("br"));
+      return;
+    }
+
+    if (!ALLOWED_TAGS.has(tag) && !TAG_ALIASES[node.tagName.toLowerCase()]) {
+      node.childNodes.forEach((child) => sanitizeNode(child, out));
+      return;
+    }
+
+    if (tag === "span") {
+      const cls = node.getAttribute("class") || "";
+      if (!cls.includes("tg-spoiler")) {
+        node.childNodes.forEach((child) => sanitizeNode(child, out));
+        return;
+      }
+    }
+
+    const el = document.createElement(tag);
+
+    if (tag === "a") {
+      const href = (node.getAttribute("href") || "").trim();
+      if (href && SAFE_HREF.test(href)) {
+        el.setAttribute("href", href);
+        el.setAttribute("rel", "noopener noreferrer");
+        el.setAttribute("target", "_blank");
+      } else {
+        node.childNodes.forEach((child) => sanitizeNode(child, out));
+        return;
+      }
+    }
+
+    if (tag === "span" && (node.getAttribute("class") || "").includes("tg-spoiler")) {
+      el.className = "tg-spoiler";
+      el.style.background = "rgba(100,116,139,0.45)";
+      el.style.borderRadius = "0.2rem";
+      el.style.padding = "0 0.15rem";
+    }
+
+    node.childNodes.forEach((child) => sanitizeNode(child, el));
+    out.appendChild(el);
+  }
+
+  function renderLivePreview() {
+    const raw = textarea.value;
+    charCount.textContent = String(raw.length);
+
+    if (!raw.trim()) {
+      livePreview.innerHTML =
+        '<p class="tg-preview-empty m-0">ستظهر معاينة الرسالة هنا أثناء الكتابة…</p>';
+      return;
+    }
+
+    const parser = new DOMParser();
+    const withBreaks = raw.replace(/\n/g, "<br>");
+    const doc = parser.parseFromString("<div>" + withBreaks + "</div>", "text/html");
+    const container = document.createElement("div");
+    const source = doc.body.firstElementChild;
+    if (source) {
+      source.childNodes.forEach((child) => sanitizeNode(child, container));
+    }
+    livePreview.innerHTML = "";
+    if (container.childNodes.length) {
+      livePreview.appendChild(container);
+    } else {
+      livePreview.textContent = raw;
+    }
+  }
+
+  function insertAtCursor(before, after, placeholder) {
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const value = textarea.value;
+    const selected = value.slice(start, end);
+    const inner = selected || placeholder || "";
+    const insertion = before + inner + after;
+    textarea.setRangeText(insertion, start, end, "end");
+    if (!selected && placeholder) {
+      const selectStart = start + before.length;
+      textarea.setSelectionRange(selectStart, selectStart + placeholder.length);
+    } else {
+      const cursor = start + insertion.length;
+      textarea.setSelectionRange(cursor, cursor);
+    }
+    textarea.focus();
+    renderLivePreview();
+  }
+
+  function wrapSelection(tag, options = {}) {
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const value = textarea.value;
+    const selected = value.slice(start, end);
+
+    if (tag === "a") {
+      const defaultUrl = "https://";
+      const urlInput = window.prompt(
+        "أدخل رابط URL (يجب أن يبدأ بـ https:// أو http:// أو tg:// أو mailto:):",
+        defaultUrl
+      );
+      if (urlInput === null) return;
+      const url = urlInput.trim();
+      if (!url) {
+        showAlert("لم يتم إدخال رابط.");
+        return;
+      }
+      if (!SAFE_HREF.test(url)) {
+        showAlert("رابط غير مسموح. استخدم https:// أو http:// أو tg:// أو mailto: فقط.");
+        return;
+      }
+      const label = selected || "نص الرابط";
+      insertAtCursor('<a href="' + escapeAttr(url) + '">', "</a>", label);
+      return;
+    }
+
+    const open = "<" + tag + ">";
+    const close = "</" + tag + ">";
+    const placeholders = {
+      b: "نص عريض",
+      i: "نص مائل",
+      u: "نص مسطّر",
+      s: "نص مشطوب",
+      code: "كود",
+    };
+    insertAtCursor(open, close, placeholders[tag] || "");
+  }
+
+  toolbar.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-format]");
+    if (!btn) return;
+    e.preventDefault();
+    const format = btn.getAttribute("data-format");
+    if (format === "a") {
+      wrapSelection("a");
+    } else if (format) {
+      wrapSelection(format);
+    }
+  });
+
+  textarea.addEventListener("input", renderLivePreview);
+  textarea.addEventListener("keyup", renderLivePreview);
+  textarea.addEventListener("paste", () => {
+    requestAnimationFrame(renderLivePreview);
+  });
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    hideAlert();
+
+    const message = textarea.value.trim();
+    if (!message) {
+      showAlert("أدخل نص الرسالة قبل الإرسال.");
+      return;
+    }
+
+    if (
+      !confirm(
+        "هل أنت متأكد من إرسال هذه الرسالة إلى جميع المستخدمين؟ لا يمكن التراجع عن البث."
+      )
+    ) {
+      return;
+    }
+
+    submitBtn.disabled = true;
+    textarea.disabled = true;
+    toolbar.querySelectorAll("button").forEach((b) => { b.disabled = true; });
+    loadingState.classList.remove("hidden");
+
+    try {
+      const response = await fetch("/api/broadcast", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ message_html: message }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(parseDetail(body));
+
+      const sent = Number(body.sent ?? 0);
+      const total = Number(body.total_users ?? 0);
+      const failed = Number(body.failed ?? 0);
+      let msg = `تم إرسال البث بنجاح إلى ${sent.toLocaleString("ar-MA")} مستخدم من أصل ${total.toLocaleString("ar-MA")}.`;
+      if (failed > 0) {
+        msg += ` (${failed.toLocaleString("ar-MA")} فشل — قد يكون المستخدم لم يبدأ البوت).`;
+      }
+      showAlert(msg, "success");
+      textarea.value = "";
+      renderLivePreview();
+    } catch (err) {
+      showAlert(err.message || "تعذّر إرسال البث.");
+    } finally {
+      submitBtn.disabled = false;
+      textarea.disabled = false;
+      toolbar.querySelectorAll("button").forEach((b) => { b.disabled = false; });
+      loadingState.classList.add("hidden");
+    }
+  });
+
+  renderLivePreview();
+</script>
+{% endblock %}

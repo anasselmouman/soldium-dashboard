@@ -1,0 +1,459 @@
+{% extends "base.html" %}
+
+{% block title %}{{ page_title }} — الإيداعات{% endblock %}
+
+{% block header_actions %}
+<button
+  id="refresh-btn"
+  type="button"
+  class="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-surface-800 px-3 py-2 text-sm font-medium text-slate-200 hover:bg-surface-700 hover:border-slate-600 transition disabled:opacity-50 disabled:cursor-not-allowed"
+>
+  <svg id="refresh-icon" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+    <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v6h6M20 20v-6h-6M5 19a9 9 0 0114-7.5M19 5a9 9 0 00-14 7.5" />
+  </svg>
+  تحديث
+</button>
+{% endblock %}
+
+{% block content %}
+<section class="space-y-6">
+  <div class="flex flex-col sm:flex-row sm:items-end sm:justify-end gap-4">
+    <div id="queue-stats" class="flex gap-3 ms-auto">
+      <div class="rounded-xl border border-slate-800 bg-surface-900 px-4 py-3 min-w-[120px]">
+        <p class="text-xs uppercase tracking-wider text-slate-500">معلّق</p>
+        <p id="pending-count" class="mt-1 text-2xl font-semibold text-accent-400">—</p>
+      </div>
+    </div>
+  </div>
+
+  <div id="alert" class="hidden rounded-lg border px-4 py-3 text-sm" role="alert"></div>
+
+  <div class="rounded-xl border border-slate-800 bg-surface-900 overflow-hidden shadow-xl shadow-black/20">
+    <div id="loading" class="flex items-center justify-center gap-3 py-16 text-slate-400">
+      <svg class="h-5 w-5 animate-spin" viewBox="0 0 24 24" fill="none">
+        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+      </svg>
+      جاري تحميل الإيداعات المعلقة…
+    </div>
+
+    <div id="empty-state" class="hidden py-16 text-center">
+      <p class="text-slate-300 font-medium">لا توجد إيداعات معلقة</p>
+      <p class="mt-1 text-sm text-slate-500">القائمة فارغة حاليًا.</p>
+    </div>
+
+    <div id="table-wrap" class="hidden overflow-x-auto">
+      <table class="min-w-full text-sm text-start">
+        <thead class="bg-surface-800/80 text-xs uppercase tracking-wider text-slate-400">
+          <tr>
+            <th class="px-4 py-3 font-medium">المعرّف</th>
+            <th class="px-4 py-3 font-medium">المستخدم</th>
+            <th class="px-4 py-3 font-medium">المبلغ</th>
+            <th class="px-4 py-3 font-medium">طريقة الدفع</th>
+            <th class="px-4 py-3 font-medium">إثبات الدفع / كود التعبئة</th>
+            <th class="px-4 py-3 font-medium">الحالة</th>
+            <th class="px-4 py-3 font-medium text-end">إجراءات</th>
+          </tr>
+        </thead>
+        <tbody id="deposits-body" class="divide-y divide-slate-800/80"></tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- نافذة تأكيد المبلغ -->
+<div id="approve-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4" aria-hidden="true">
+  <div id="approve-backdrop" class="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
+  <div class="relative w-full max-w-md rounded-xl border border-slate-700 bg-surface-900 shadow-2xl p-6 space-y-4">
+    <h2 class="text-lg font-semibold text-white">تأكيد الشحن</h2>
+    <p class="text-sm text-slate-400">
+      الطلب <span id="modal-deposit-label" class="font-mono text-slate-200"></span> —
+      أدخل المبلغ النهائي بالدرهم المُضاف إلى الرصيد.
+    </p>
+    <div>
+      <label for="modal-amount" class="block text-xs font-medium text-slate-400 mb-1">المبلغ (درهم)</label>
+      <input
+        id="modal-amount"
+        type="number"
+        step="0.01"
+        min="0.01"
+        placeholder="أدخل المبلغ بالدرهم"
+        class="w-full rounded-lg border border-slate-600 bg-surface-800 px-3 py-2 text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-accent-500"
+      />
+    </div>
+    <div class="flex gap-2 justify-end pt-2">
+      <button
+        id="modal-cancel"
+        type="button"
+        class="rounded-lg border border-slate-600 px-4 py-2 text-sm text-slate-300 hover:bg-surface-800"
+      >
+        إلغاء
+      </button>
+      <button
+        id="modal-confirm"
+        type="button"
+        class="rounded-lg bg-emerald-600 hover:bg-emerald-500 px-4 py-2 text-sm font-medium text-white"
+      >
+        قبول
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- نافذة رفض الطلب -->
+<div id="reject-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4" aria-hidden="true">
+  <div id="reject-backdrop" class="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
+  <div class="relative w-full max-w-md rounded-xl border border-slate-700 bg-surface-900 shadow-2xl p-6 space-y-4">
+    <h2 class="text-lg font-semibold text-white">رفض الطلب</h2>
+    <p class="text-sm text-slate-400">
+      الطلب <span id="reject-modal-label" class="font-mono text-slate-200"></span> —
+      يمكنك إضافة سبب الرفض (اختياري).
+    </p>
+    <div>
+      <label for="reject-reason" class="block text-xs font-medium text-slate-400 mb-1">سبب الرفض</label>
+      <textarea
+        id="reject-reason"
+        rows="3"
+        maxlength="500"
+        placeholder="اكتب سبب الرفض هنا (اختياري)"
+        class="w-full rounded-lg border border-slate-600 bg-surface-800 px-3 py-2 text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-red-500 resize-y"
+      ></textarea>
+    </div>
+    <div class="flex gap-2 justify-end pt-2">
+      <button
+        id="reject-modal-cancel"
+        type="button"
+        class="rounded-lg border border-slate-600 px-4 py-2 text-sm text-slate-300 hover:bg-surface-800"
+      >
+        إلغاء
+      </button>
+      <button
+        id="reject-modal-confirm"
+        type="button"
+        class="rounded-lg bg-red-600 hover:bg-red-500 px-4 py-2 text-sm font-medium text-white"
+      >
+        رفض
+      </button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const API_URL = "/api/deposits/pending";
+
+  const STATUS_LABELS = {
+    pending: "قيد الانتظار",
+    rejected: "مرفوض",
+  };
+
+  const METHOD_LABELS = {
+    "Binance/Crypto": "باينانس / كريبتو",
+    PayPal: "باي بال",
+  };
+
+  const els = {
+    alert: document.getElementById("alert"),
+    loading: document.getElementById("loading"),
+    empty: document.getElementById("empty-state"),
+    tableWrap: document.getElementById("table-wrap"),
+    tbody: document.getElementById("deposits-body"),
+    count: document.getElementById("pending-count"),
+    refreshBtn: document.getElementById("refresh-btn"),
+    refreshIcon: document.getElementById("refresh-icon"),
+  };
+
+  function showAlert(message, type = "error") {
+    els.alert.textContent = message;
+    els.alert.className =
+      "rounded-lg border px-4 py-3 text-sm " +
+      (type === "error"
+        ? "border-red-900/60 bg-red-950/40 text-red-200"
+        : "border-emerald-900/60 bg-emerald-950/40 text-emerald-200");
+    els.alert.classList.remove("hidden");
+  }
+
+  function hideAlert() {
+    els.alert.classList.add("hidden");
+  }
+
+  function formatAmount(value) {
+    const n = Number(value);
+    if (Number.isNaN(n)) return value;
+    return (
+      n.toLocaleString("ar-MA", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) +
+      " درهم"
+    );
+  }
+
+  function formatStatus(status) {
+    if (!status) return "—";
+    const raw = String(status);
+    if (STATUS_LABELS[raw]) return STATUS_LABELS[raw];
+    if (raw.startsWith("approved:")) {
+      const amount = raw.slice("approved:".length);
+      return `مقبول (${formatAmount(amount)})`;
+    }
+    return raw;
+  }
+
+  function formatMethod(method) {
+    if (!method) return "—";
+    const key = String(method).trim();
+    return METHOD_LABELS[key] || key;
+  }
+
+  function escapeHtml(text) {
+    const div = document.createElement("div");
+    div.textContent = text ?? "";
+    return div.innerHTML;
+  }
+
+  function userProfileHref(userId) {
+    return `/dashboard/users/${Number(userId)}`;
+  }
+
+  function userProfileLink(userId, innerHtml) {
+    return `<a href="${userProfileHref(userId)}" class="text-blue-400 hover:text-blue-300 underline font-bold" target="_blank" rel="noopener">${innerHtml}</a>`;
+  }
+
+  function renderRow(deposit) {
+    const uid = deposit.user_id;
+    const userLabel = deposit.telegram_name
+      ? `${userProfileLink(uid, escapeHtml(deposit.telegram_name))} <span class="text-slate-500">(${userProfileLink(uid, String(uid))})</span>`
+      : userProfileLink(uid, `<span class="font-mono">${uid}</span>`);
+
+    return `
+      <tr class="hover:bg-surface-800/40 transition">
+        <td class="px-4 py-3 font-mono text-slate-300">#${deposit.id}</td>
+        <td class="px-4 py-3">${userLabel}</td>
+        <td class="px-4 py-3 font-semibold text-white">${formatAmount(deposit.amount)}</td>
+        <td class="px-4 py-3">
+          <span class="inline-flex rounded-md bg-surface-800 px-2 py-1 text-xs font-medium text-slate-200 border border-slate-700">
+            ${escapeHtml(formatMethod(deposit.method))}
+          </span>
+        </td>
+        <td class="px-4 py-3 max-w-xs truncate font-mono text-xs text-slate-400" title="${escapeHtml(deposit.proof_file_id)}">
+          ${escapeHtml(deposit.proof_file_id)}
+        </td>
+        <td class="px-4 py-3">
+          <span class="inline-flex rounded-full bg-amber-500/10 text-amber-300 border border-amber-500/30 px-2.5 py-0.5 text-xs font-medium">
+            ${escapeHtml(formatStatus(deposit.status))}
+          </span>
+        </td>
+        <td class="px-4 py-3 text-end whitespace-nowrap">
+          <button
+            type="button"
+            data-action="approve"
+            data-deposit-id="${deposit.id}"
+            data-amount="${deposit.amount}"
+            class="approve-btn inline-flex rounded-lg bg-emerald-600/90 hover:bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-white ms-1 disabled:opacity-50"
+          >قبول</button>
+          <button
+            type="button"
+            data-action="reject"
+            data-deposit-id="${deposit.id}"
+            class="reject-btn inline-flex rounded-lg bg-red-600/90 hover:bg-red-500 px-3 py-1.5 text-xs font-semibold text-white ms-1 disabled:opacity-50"
+          >رفض</button>
+        </td>
+      </tr>
+    `;
+  }
+
+  function parseErrorDetail(body) {
+    const detail = body?.detail;
+    if (!detail) return "فشل تنفيذ الطلب.";
+    if (typeof detail === "string") return detail;
+    if (detail.message) return detail.message;
+    if (Array.isArray(detail)) {
+      const msgs = detail.map((item) => item.msg).filter(Boolean);
+      if (msgs.length) return msgs.join(" ");
+    }
+    return "حدث خطأ غير متوقع.";
+  }
+
+  async function postJson(url, payload) {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify(payload),
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(parseErrorDetail(body));
+    }
+    return body;
+  }
+
+  function setRowBusy(depositId, busy) {
+    document.querySelectorAll(`[data-deposit-id="${depositId}"]`).forEach((btn) => {
+      btn.disabled = busy;
+    });
+  }
+
+  let pendingApproveId = null;
+  let pendingRejectId = null;
+
+  const modal = {
+    root: document.getElementById("approve-modal"),
+    backdrop: document.getElementById("approve-backdrop"),
+    label: document.getElementById("modal-deposit-label"),
+    amount: document.getElementById("modal-amount"),
+    cancel: document.getElementById("modal-cancel"),
+    confirm: document.getElementById("modal-confirm"),
+  };
+
+  const rejectModal = {
+    root: document.getElementById("reject-modal"),
+    backdrop: document.getElementById("reject-backdrop"),
+    label: document.getElementById("reject-modal-label"),
+    reason: document.getElementById("reject-reason"),
+    cancel: document.getElementById("reject-modal-cancel"),
+    confirm: document.getElementById("reject-modal-confirm"),
+  };
+
+  function openApproveModal(depositId, suggestedAmount) {
+    pendingApproveId = depositId;
+    modal.label.textContent = `#${depositId}`;
+    const suggested = Number(suggestedAmount);
+    modal.amount.value = suggested > 0 ? String(suggested) : "";
+    modal.root.classList.remove("hidden");
+    modal.amount.focus();
+  }
+
+  function closeApproveModal() {
+    pendingApproveId = null;
+    modal.root.classList.add("hidden");
+  }
+
+  async function confirmApprove() {
+    if (!pendingApproveId) return;
+    const amount = Number(modal.amount.value);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      showAlert("أدخل مبلغًا صالحًا بالدرهم.");
+      return;
+    }
+    const depositId = pendingApproveId;
+    closeApproveModal();
+    setRowBusy(depositId, true);
+    try {
+      await postJson(`/api/deposits/${depositId}/approve`, { amount_dh: amount });
+      showAlert(`تم قبول الطلب #${depositId} — ${formatAmount(amount)}`, "success");
+      await loadDeposits();
+    } catch (err) {
+      showAlert(err.message || "فشل قبول الطلب.");
+    } finally {
+      setRowBusy(depositId, false);
+    }
+  }
+
+  function openRejectModal(depositId) {
+    pendingRejectId = depositId;
+    rejectModal.label.textContent = `#${depositId}`;
+    rejectModal.reason.value = "";
+    rejectModal.root.classList.remove("hidden");
+    rejectModal.reason.focus();
+  }
+
+  function closeRejectModal() {
+    pendingRejectId = null;
+    rejectModal.root.classList.add("hidden");
+  }
+
+  async function confirmReject() {
+    if (!pendingRejectId) return;
+    const depositId = pendingRejectId;
+    const reason = rejectModal.reason.value.trim();
+    closeRejectModal();
+    setRowBusy(depositId, true);
+    try {
+      const payload = reason ? { reason } : {};
+      await postJson(`/api/deposits/${depositId}/reject`, payload);
+      showAlert(`تم رفض الطلب #${depositId}.`, "success");
+      await loadDeposits();
+    } catch (err) {
+      showAlert(err.message || "فشل رفض الطلب.");
+    } finally {
+      setRowBusy(depositId, false);
+    }
+  }
+
+  function onTableClick(event) {
+    const btn = event.target.closest("button[data-action]");
+    if (!btn) return;
+    const depositId = Number(btn.dataset.depositId);
+    if (!depositId) return;
+
+    if (btn.dataset.action === "approve") {
+      openApproveModal(depositId, btn.dataset.amount);
+      return;
+    }
+    if (btn.dataset.action === "reject") {
+      openRejectModal(depositId);
+    }
+  }
+
+  function setLoading(isLoading) {
+    els.refreshBtn.disabled = isLoading;
+    els.refreshIcon.classList.toggle("animate-spin", isLoading);
+    if (isLoading) {
+      els.loading.classList.remove("hidden");
+    } else {
+      els.loading.classList.add("hidden");
+    }
+  }
+
+  async function loadDeposits() {
+    hideAlert();
+    setLoading(true);
+    els.empty.classList.add("hidden");
+    els.tableWrap.classList.add("hidden");
+
+    try {
+      const response = await fetch(API_URL, { credentials: "same-origin" });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(parseErrorDetail(body) || response.statusText);
+      }
+
+      const data = await response.json();
+      const deposits = data.deposits ?? [];
+      els.count.textContent = String(data.count ?? deposits.length);
+
+      if (deposits.length === 0) {
+        els.empty.classList.remove("hidden");
+        els.tbody.innerHTML = "";
+        return;
+      }
+
+      els.tbody.innerHTML = deposits.map(renderRow).join("");
+      els.tableWrap.classList.remove("hidden");
+    } catch (err) {
+      els.count.textContent = "—";
+      showAlert(err.message || "تعذّر تحميل الإيداعات المعلقة.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  els.tbody.addEventListener("click", onTableClick);
+  els.refreshBtn.addEventListener("click", loadDeposits);
+  modal.cancel.addEventListener("click", closeApproveModal);
+  modal.backdrop.addEventListener("click", closeApproveModal);
+  modal.confirm.addEventListener("click", confirmApprove);
+  modal.amount.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") confirmApprove();
+    if (e.key === "Escape") closeApproveModal();
+  });
+  rejectModal.cancel.addEventListener("click", closeRejectModal);
+  rejectModal.backdrop.addEventListener("click", closeRejectModal);
+  rejectModal.confirm.addEventListener("click", confirmReject);
+  rejectModal.reason.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closeRejectModal();
+  });
+
+  loadDeposits();
+</script>
+{% endblock %}

@@ -1,0 +1,969 @@
+{% extends "base.html" %}
+
+{% block title %}{{ page_title }}{% endblock %}
+
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+<style>
+  .analytics-hero {
+    background: linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(11, 15, 23, 0.98) 45%, rgba(2, 132, 199, 0.08) 100%);
+    border: 1px solid #243047;
+    clip-path: polygon(0 0, calc(100% - 16px) 0, 100% 16px, 100% 100%, 16px 100%, 0 calc(100% - 16px));
+  }
+  .analytics-tabs {
+    clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 0 100%);
+    border: 1px solid #243047;
+    background: linear-gradient(180deg, #111827 0%, #0b0f17 100%);
+  }
+  .analytics-tab {
+    position: relative;
+    color: #94a3b8;
+    border-bottom: 3px solid transparent;
+    transition: color 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+  }
+  .analytics-tab:hover {
+    color: #e2e8f0;
+    background: rgba(14, 165, 233, 0.06);
+  }
+  .analytics-tab--active {
+    color: #7dd3fc;
+    border-bottom-color: #0ea5e9;
+    background: rgba(14, 165, 233, 0.1);
+  }
+  .analytics-tab--active::after {
+    content: "";
+    position: absolute;
+    bottom: -3px;
+    inset-inline-end: 0;
+    width: 28px;
+    height: 3px;
+    background: linear-gradient(270deg, #38bdf8, transparent);
+    pointer-events: none;
+  }
+  .tab-panel {
+    animation: tabFadeIn 0.25s ease-out;
+  }
+  @keyframes tabFadeIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .chart-panel {
+    position: relative;
+    clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 12px 100%, 0 calc(100% - 12px));
+    border: 1px solid rgba(36, 48, 71, 0.95);
+    background: linear-gradient(165deg, #111827 0%, #0b0f17 58%);
+  }
+  .chart-panel::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    inset-inline-end: 0;
+    width: 64px;
+    height: 3px;
+    background: linear-gradient(270deg, #0ea5e9, transparent);
+    pointer-events: none;
+    z-index: 1;
+  }
+  .chart-panel--wide::before {
+    width: 96px;
+    background: linear-gradient(270deg, #38bdf8, #6366f1, transparent);
+  }
+  .chart-panel--donut::before {
+    background: linear-gradient(270deg, #34d399, #fb923c, transparent);
+  }
+  .chart-panel--bar::before {
+    background: linear-gradient(270deg, #38bdf8, transparent);
+  }
+  .chart-panel--profit::before {
+    width: 120px;
+    background: linear-gradient(270deg, #22c55e, #38bdf8, transparent);
+  }
+  .chart-panel--profit {
+    box-shadow: 0 0 60px -20px rgba(34, 197, 94, 0.2);
+  }
+  .chart-panel--intel::before {
+    background: linear-gradient(270deg, #a78bfa, #fbbf24, transparent);
+  }
+  .leaderboard-panel {
+    clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px));
+    border: 1px solid rgba(36, 48, 71, 0.95);
+    background: linear-gradient(165deg, #111827 0%, #0b0f17 62%);
+  }
+  .leaderboard-table th {
+    font-size: 0.65rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #64748b;
+  }
+  .leaderboard-table tbody tr {
+    border-bottom: 1px solid rgba(36, 48, 71, 0.6);
+  }
+  .leaderboard-table tbody tr:last-child { border-bottom: none; }
+  .rank-badge {
+    clip-path: polygon(0 0, calc(100% - 4px) 0, 100% 4px, 100% 100%, 4px 100%, 0 calc(100% - 4px));
+  }
+  .kpi-card {
+    clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px));
+    border: 1px solid rgba(36, 48, 71, 0.9);
+    background: linear-gradient(165deg, #111827 0%, #0b0f17 60%);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+  }
+  .kpi-card:hover { transform: translateY(-2px); }
+  .kpi-card--blue { box-shadow: 0 0 40px -14px rgba(56, 189, 248, 0.3); }
+  .kpi-card--green { box-shadow: 0 0 40px -14px rgba(52, 211, 153, 0.28); }
+  .kpi-card--orange { box-shadow: 0 0 40px -14px rgba(251, 146, 60, 0.28); }
+  .kpi-skeleton {
+    background: linear-gradient(90deg, #1a2234 25%, #243047 50%, #1a2234 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.2s ease-in-out infinite;
+  }
+  @keyframes shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+  .apexcharts-tooltip { direction: rtl; text-align: right; }
+</style>
+{% endblock %}
+
+{% block header_actions %}
+<div class="flex items-center gap-2">
+  <button
+    id="reset-test-data-btn"
+    type="button"
+    class="inline-flex items-center gap-1.5 rounded-lg border border-red-900/70 bg-red-950/35 px-3 py-2 text-xs font-medium text-red-200 hover:bg-red-900/45 hover:border-red-700 transition"
+    title="يمسح بيانات الاختبار المالية"
+  >
+    تصفير بيانات الاختبار
+  </button>
+  <button
+    id="refresh-btn"
+    type="button"
+    class="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-surface-800 px-3 py-2 text-sm font-medium text-slate-200 hover:bg-surface-700 hover:border-slate-600 transition disabled:opacity-50"
+  >
+    <svg id="refresh-icon" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v6h6M20 20v-6h-6M5 19a9 9 0 0114-7.5M19 5a9 9 0 00-14 7.5" />
+    </svg>
+    تحديث البيانات
+  </button>
+</div>
+{% endblock %}
+
+{% block content %}
+<section class="space-y-5 lg:space-y-6">
+  <div id="alert" class="hidden rounded-lg border px-4 py-3 text-sm" role="alert"></div>
+
+  <header class="analytics-hero p-6 sm:p-8">
+    <div class="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
+      <div>
+        <p class="text-xs font-semibold tracking-widest text-accent-400 uppercase">مركز الإحصائيات الشامل</p>
+        <h2 class="mt-1 text-2xl sm:text-3xl font-bold text-white">لوحة التحليلات المالية</h2>
+        <p class="mt-2 text-sm text-slate-400 max-w-2xl leading-relaxed">
+          استكشف الخزينة، الأرباح، والجمهور عبر تبويبات منظّمة — بدون إرهاق بصري.
+        </p>
+      </div>
+      <p id="last-updated" class="text-xs text-slate-500 shrink-0">جاري التحميل…</p>
+    </div>
+  </header>
+
+  <!-- شريط التبويبات -->
+  <nav class="analytics-tabs overflow-x-auto" aria-label="أقسام التحليلات">
+    <div class="flex min-w-max sm:min-w-0" role="tablist">
+      <button
+        type="button"
+        role="tab"
+        id="tab-btn-treasury"
+        class="analytics-tab analytics-tab--active flex-1 px-4 sm:px-6 py-3.5 text-sm font-semibold whitespace-nowrap"
+        aria-selected="true"
+        aria-controls="tab-panel-treasury"
+        data-tab="treasury"
+      >
+        الخزينة والسيولة
+      </button>
+      <button
+        type="button"
+        role="tab"
+        id="tab-btn-profit"
+        class="analytics-tab flex-1 px-4 sm:px-6 py-3.5 text-sm font-semibold whitespace-nowrap"
+        aria-selected="false"
+        aria-controls="tab-panel-profit"
+        data-tab="profit"
+      >
+        مؤشر الأرباح
+      </button>
+      <button
+        type="button"
+        role="tab"
+        id="tab-btn-audience"
+        class="analytics-tab flex-1 px-4 sm:px-6 py-3.5 text-sm font-semibold whitespace-nowrap"
+        aria-selected="false"
+        aria-controls="tab-panel-audience"
+        data-tab="audience"
+      >
+        الجمهور والخدمات
+      </button>
+    </div>
+  </nav>
+
+  <!-- التبويب ١: الخزينة والسيولة -->
+  <div
+    id="tab-panel-treasury"
+    class="tab-panel space-y-5 lg:space-y-6"
+    role="tabpanel"
+    aria-labelledby="tab-btn-treasury"
+  >
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 lg:gap-5">
+      <article class="kpi-card kpi-card--blue p-5 sm:p-6">
+        <p class="text-xs font-semibold text-sky-300/90 uppercase tracking-wide">إجمالي الإيداعات</p>
+        <p id="kpi-deposited" class="mt-2 text-2xl sm:text-3xl font-bold text-white tabular-nums kpi-skeleton h-9 w-36 rounded"></p>
+        <p class="mt-2 text-[11px] text-slate-500">مجموع الإيداعات المكتملة في النظام</p>
+      </article>
+      <article class="kpi-card kpi-card--green p-5 sm:p-6">
+        <p class="text-xs font-semibold text-emerald-300/90 uppercase tracking-wide">المال الحر</p>
+        <p id="kpi-free-money" class="mt-2 text-2xl sm:text-3xl font-bold text-emerald-100 tabular-nums kpi-skeleton h-9 w-36 rounded"></p>
+        <p class="mt-2 text-[11px] text-slate-500">أموال مُقفَلة في الطلبات — غير قابلة للسحب</p>
+      </article>
+      <article class="kpi-card kpi-card--orange p-5 sm:p-6">
+        <p class="text-xs font-semibold text-orange-300/90 uppercase tracking-wide">الالتزامات تجاه المستخدمين</p>
+        <p id="kpi-liabilities" class="mt-2 text-2xl sm:text-3xl font-bold text-orange-100 tabular-nums kpi-skeleton h-9 w-36 rounded"></p>
+        <p class="mt-2 text-[11px] text-slate-500">أرصدة قابلة للسحب (رئيسي + إحالات)</p>
+      </article>
+    </div>
+
+    <article class="chart-panel chart-panel--wide p-5 sm:p-6 lg:p-7">
+      <div class="mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+        <div>
+          <h3 class="text-base font-bold text-white">التدفق النقدي — آخر 30 يومًا</h3>
+          <p class="text-xs text-slate-500 mt-0.5">مقارنة الإيداعات المكتملة مقابل السحوبات المُنجزة يوميًا</p>
+        </div>
+        <div class="flex flex-wrap gap-3 text-xs text-slate-400">
+          <span class="inline-flex items-center gap-1.5"><span class="h-2 w-2 rounded-full bg-sky-400"></span>إيداعات</span>
+          <span class="inline-flex items-center gap-1.5"><span class="h-2 w-2 rounded-full bg-orange-400"></span>سحوبات</span>
+        </div>
+      </div>
+      <div id="chart-cashflow" class="min-h-[320px] w-full"></div>
+    </article>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-5">
+      <article class="chart-panel chart-panel--donut p-5 sm:p-6">
+        <div class="mb-4">
+          <h3 class="text-base font-bold text-white">المال الحر مقابل الالتزامات</h3>
+          <p class="text-xs text-slate-500 mt-0.5">توزيع رأس المال المُقفَل مقابل ما تدين به المنصة للمستخدمين</p>
+        </div>
+        <div id="chart-treasury-split" class="min-h-[300px] w-full flex items-center justify-center"></div>
+      </article>
+
+      <article class="chart-panel chart-panel--bar p-5 sm:p-6">
+        <div class="mb-4">
+          <h3 class="text-base font-bold text-white">توزيع الإيداعات حسب بوابة الدفع</h3>
+          <p class="text-xs text-slate-500 mt-0.5">حجم الإيداعات المكتملة لكل طريقة دفع</p>
+        </div>
+        <div id="chart-gateways" class="min-h-[300px] w-full"></div>
+      </article>
+    </div>
+  </div>
+
+  <!-- التبويب ٢: مؤشر الأرباح -->
+  <div
+    id="tab-panel-profit"
+    class="tab-panel hidden space-y-5 lg:space-y-6"
+    role="tabpanel"
+    aria-labelledby="tab-btn-profit"
+    hidden
+  >
+    <article class="chart-panel chart-panel--profit chart-panel--wide p-5 sm:p-6 lg:p-8">
+      <div class="mb-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <h3 class="text-lg sm:text-xl font-bold text-white">محرك الأرباح الصافية</h3>
+          <p class="text-xs text-slate-500 mt-1 max-w-3xl leading-relaxed">
+            الربح اليومي = (المبيعات − المستردات) − تكلفة المزوّد (كمية/1000 × سعر USD × 10 درهم) − عمولة الإحالة — آخر 30 يومًا.
+          </p>
+        </div>
+        <div class="flex flex-wrap gap-3 text-xs text-slate-400">
+          <span class="inline-flex items-center gap-1.5"><span class="h-2 w-2 rounded-full bg-sky-400"></span>المبيعات</span>
+          <span class="inline-flex items-center gap-1.5"><span class="h-2 w-2 rounded-full bg-orange-400"></span>التكاليف</span>
+          <span class="inline-flex items-center gap-1.5"><span class="h-2 w-2 rounded-full bg-emerald-400"></span>الربح الصافي</span>
+        </div>
+      </div>
+      <div id="chart-profit" class="min-h-[380px] w-full"></div>
+    </article>
+  </div>
+
+  <!-- التبويب ٣: الجمهور والخدمات -->
+  <div
+    id="tab-panel-audience"
+    class="tab-panel hidden space-y-5 lg:space-y-6"
+    role="tabpanel"
+    aria-labelledby="tab-btn-audience"
+    hidden
+  >
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-5">
+      <article class="chart-panel chart-panel--intel p-5 sm:p-6">
+        <div class="mb-4">
+          <h3 class="text-base font-bold text-white">توزيع حالات الطلبات</h3>
+          <p class="text-xs text-slate-500 mt-0.5">مكتمل، جزئي، قيد الانتظار، ملغي/مسترد</p>
+        </div>
+        <div id="chart-orders-status" class="min-h-[300px] w-full"></div>
+      </article>
+
+      <div class="space-y-4 lg:space-y-5">
+        <article class="leaderboard-panel p-5 sm:p-6 border border-slate-800/90">
+          <h3 class="text-base font-bold text-white">أفضل 5 خدمات مبيعاً</h3>
+          <p class="text-xs text-slate-500 mt-0.5 mb-4">حسب عدد الطلبات المسجّلة</p>
+          <div class="overflow-x-auto">
+            <table class="leaderboard-table w-full text-sm text-right">
+              <thead>
+                <tr class="border-b border-slate-800">
+                  <th class="pb-2 pe-2 text-start w-10">#</th>
+                  <th class="pb-2 pe-3">الخدمة</th>
+                  <th class="pb-2 text-end">الطلبات</th>
+                </tr>
+              </thead>
+              <tbody id="leaderboard-services">
+                <tr><td colspan="3" class="py-6 text-center text-slate-500 text-xs">جاري التحميل…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </article>
+
+        <article class="leaderboard-panel p-5 sm:p-6 border border-amber-900/30">
+          <h3 class="text-base font-bold text-white">قائمة كبار العملاء VIP</h3>
+          <p class="text-xs text-slate-500 mt-0.5 mb-4">أعلى 10 مستخدمين حسب إجمالي الإنفاق</p>
+          <div class="overflow-x-auto">
+            <table class="leaderboard-table w-full text-sm text-right">
+              <thead>
+                <tr class="border-b border-slate-800">
+                  <th class="pb-2 pe-2 text-start w-10">#</th>
+                  <th class="pb-2 pe-3">العميل</th>
+                  <th class="pb-2 text-end">إجمالي الإنفاق</th>
+                </tr>
+              </thead>
+              <tbody id="leaderboard-vip">
+                <tr><td colspan="3" class="py-6 text-center text-slate-500 text-xs">جاري التحميل…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </article>
+      </div>
+    </div>
+  </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  (function () {
+    const COLORS = {
+      deposit: "#38bdf8",
+      withdraw: "#f97316",
+      freeMoney: "#34d399",
+      profit: "#22c55e",
+      sales: "#38bdf8",
+      costs: "#f97316",
+      liabilities: "#fb923c",
+      statusCompleted: "#34d399",
+      statusPending: "#fbbf24",
+      statusPartial: "#60a5fa",
+      statusCanceled: "#ef4444",
+      grid: "#243047",
+      muted: "#64748b",
+      label: "#94a3b8",
+    };
+
+    const STATUS_COLORS = {
+      "مكتمل": COLORS.statusCompleted,
+      "مكتمل جزئياً": COLORS.statusPartial,
+      "قيد الانتظار": COLORS.statusPending,
+      "ملغي / مسترد": COLORS.statusCanceled,
+      "لا توجد طلبات": COLORS.muted,
+    };
+
+    const TAB_CHART_KEYS = {
+      treasury: ["cashflow", "treasury", "gateways"],
+      profit: ["profit"],
+      audience: ["ordersStatus"],
+    };
+
+    const els = {
+      alert: document.getElementById("alert"),
+      resetTestDataBtn: document.getElementById("reset-test-data-btn"),
+      refreshBtn: document.getElementById("refresh-btn"),
+      refreshIcon: document.getElementById("refresh-icon"),
+      lastUpdated: document.getElementById("last-updated"),
+      kpiDeposited: document.getElementById("kpi-deposited"),
+      kpiFreeMoney: document.getElementById("kpi-free-money"),
+      kpiLiabilities: document.getElementById("kpi-liabilities"),
+    };
+
+    const tabButtons = Array.from(document.querySelectorAll("[data-tab]"));
+    const tabPanels = {
+      treasury: document.getElementById("tab-panel-treasury"),
+      profit: document.getElementById("tab-panel-profit"),
+      audience: document.getElementById("tab-panel-audience"),
+    };
+
+    const charts = {
+      cashflow: null,
+      treasury: null,
+      gateways: null,
+      profit: null,
+      ordersStatus: null,
+    };
+
+    const tabsRendered = { treasury: false, profit: false, audience: false };
+    let activeTab = "treasury";
+    let dataCache = null;
+
+    function formatDh(value) {
+      const n = Number(value);
+      if (Number.isNaN(n)) return "—";
+      return n.toLocaleString("ar-MA", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " درهم";
+    }
+
+    function formatDhShort(value) {
+      const n = Number(value);
+      if (Number.isNaN(n)) return "—";
+      if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "م";
+      if (n >= 1_000) return (n / 1_000).toFixed(1) + "ألف";
+      return n.toFixed(0);
+    }
+
+    function formatCount(n) {
+      return Number(n).toLocaleString("ar-MA");
+    }
+
+    function formatChartDate(iso) {
+      try {
+        const d = new Date(iso + "T12:00:00");
+        return d.toLocaleDateString("ar-MA", { day: "numeric", month: "short" });
+      } catch {
+        return iso;
+      }
+    }
+
+    function parseErrorDetail(body) {
+      const detail = body?.detail;
+      if (!detail) return "تعذّر تحميل بيانات التحليلات.";
+      if (typeof detail === "string") return detail;
+      if (detail.message) return detail.message;
+      return "حدث خطأ غير متوقع.";
+    }
+
+    function showAlert(message, type) {
+      els.alert.textContent = message;
+      els.alert.classList.remove("hidden", "border-red-900/60", "bg-red-950/40", "text-red-200");
+      els.alert.classList.remove("border-emerald-900/60", "bg-emerald-950/40", "text-emerald-200");
+      if (type === "success") {
+        els.alert.classList.add("border-emerald-900/60", "bg-emerald-950/40", "text-emerald-200");
+      } else {
+        els.alert.classList.add("border-red-900/60", "bg-red-950/40", "text-red-200");
+      }
+      els.alert.classList.remove("hidden");
+    }
+
+    function hideAlert() {
+      els.alert.classList.add("hidden");
+    }
+
+    function clearKpiSkeleton(el, text) {
+      el.classList.remove("kpi-skeleton", "h-9", "w-36", "rounded");
+      el.textContent = text;
+    }
+
+    function setLoading(loading) {
+      els.refreshBtn.disabled = loading;
+      els.refreshIcon.classList.toggle("animate-spin", loading);
+      if (els.resetTestDataBtn) {
+        els.resetTestDataBtn.disabled = loading;
+        els.resetTestDataBtn.classList.toggle("opacity-60", loading);
+        els.resetTestDataBtn.classList.toggle("cursor-not-allowed", loading);
+      }
+    }
+
+    async function fetchJson(url) {
+      const res = await fetch(url, { credentials: "same-origin" });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(parseErrorDetail(body));
+      return body;
+    }
+
+    function baseChartOptions() {
+      return {
+        chart: {
+          fontFamily: "Cairo, Tajawal, sans-serif",
+          background: "transparent",
+          toolbar: { show: false },
+          zoom: { enabled: false },
+        },
+        theme: { mode: "dark" },
+        grid: { borderColor: COLORS.grid, strokeDashArray: 4 },
+        dataLabels: { enabled: false },
+        tooltip: {
+          theme: "dark",
+          y: { formatter: (v) => formatDh(v) },
+        },
+        legend: {
+          labels: { colors: COLORS.label },
+          fontFamily: "Cairo, sans-serif",
+        },
+      };
+    }
+
+    function destroyChart(key) {
+      if (charts[key]) {
+        try {
+          charts[key].destroy();
+        } catch (_) { /* ignore */ }
+        charts[key] = null;
+      }
+    }
+
+    function destroyAllCharts() {
+      Object.keys(charts).forEach(destroyChart);
+      tabsRendered.treasury = false;
+      tabsRendered.profit = false;
+      tabsRendered.audience = false;
+    }
+
+    function resizeTabCharts(tabId) {
+      const keys = TAB_CHART_KEYS[tabId] || [];
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          keys.forEach((key) => {
+            if (charts[key] && typeof charts[key].windowResize === "function") {
+              charts[key].windowResize();
+            }
+          });
+        });
+      });
+    }
+
+    function renderCashflow(data) {
+      const el = document.querySelector("#chart-cashflow");
+      if (!el) return;
+      const categories = (data.dates || []).map(formatChartDate);
+      const options = {
+        ...baseChartOptions(),
+        chart: {
+          ...baseChartOptions().chart,
+          type: "area",
+          height: 340,
+          animations: { enabled: true, easing: "easeinout", speed: 700 },
+        },
+        colors: [COLORS.deposit, COLORS.withdraw],
+        stroke: { curve: "smooth", width: 2.5 },
+        fill: {
+          type: "gradient",
+          gradient: {
+            shadeIntensity: 1,
+            opacityFrom: 0.45,
+            opacityTo: 0.05,
+            stops: [0, 90, 100],
+          },
+        },
+        series: [
+          { name: "الإيداعات", data: data.deposits || [] },
+          { name: "السحوبات", data: data.withdrawals || [] },
+        ],
+        xaxis: {
+          categories,
+          labels: { style: { colors: COLORS.muted, fontSize: "11px" } },
+          axisBorder: { color: COLORS.grid },
+          axisTicks: { color: COLORS.grid },
+        },
+        yaxis: {
+          labels: {
+            style: { colors: COLORS.muted },
+            formatter: (v) => formatDhShort(v),
+          },
+        },
+        markers: { size: 0, hover: { size: 5 } },
+      };
+
+      if (charts.cashflow) {
+        charts.cashflow.updateOptions({ xaxis: { categories } });
+        charts.cashflow.updateSeries(options.series);
+        return;
+      }
+      charts.cashflow = new ApexCharts(el, options);
+      charts.cashflow.render();
+    }
+
+    function renderTreasurySplit(summary) {
+      const el = document.querySelector("#chart-treasury-split");
+      if (!el) return;
+      const free = Math.max(0, Number(summary.total_free_money_dh) || 0);
+      const liabilities = Math.max(0, Number(summary.total_liabilities_dh) || 0);
+      const options = {
+        ...baseChartOptions(),
+        chart: { ...baseChartOptions().chart, type: "donut", height: 300 },
+        colors: [COLORS.freeMoney, COLORS.liabilities],
+        labels: ["المال الحر", "الالتزامات"],
+        series: [free, liabilities],
+        plotOptions: {
+          pie: {
+            donut: {
+              size: "68%",
+              labels: {
+                show: true,
+                name: { color: COLORS.label, fontSize: "13px" },
+                value: {
+                  color: "#f1f5f9",
+                  fontSize: "18px",
+                  fontWeight: 700,
+                  formatter: (v) => formatDhShort(v),
+                },
+                total: {
+                  show: true,
+                  label: "المجموع",
+                  color: COLORS.muted,
+                  formatter: (w) =>
+                    formatDhShort(w.globals.seriesTotals.reduce((a, b) => a + b, 0)),
+                },
+              },
+            },
+          },
+        },
+        stroke: { width: 2, colors: ["#0b0f17"] },
+        legend: { position: "bottom" },
+      };
+
+      if (charts.treasury) {
+        charts.treasury.updateOptions({ labels: options.labels, colors: options.colors });
+        charts.treasury.updateSeries([free, liabilities]);
+        return;
+      }
+      charts.treasury = new ApexCharts(el, options);
+      charts.treasury.render();
+    }
+
+    function renderGateways(data) {
+      const el = document.querySelector("#chart-gateways");
+      if (!el) return;
+      const methods = data.methods || [];
+      const totals = data.totals || [];
+      const options = {
+        ...baseChartOptions(),
+        chart: { ...baseChartOptions().chart, type: "bar", height: 300 },
+        colors: [COLORS.deposit],
+        series: [{ name: "إجمالي الإيداع", data: totals }],
+        plotOptions: {
+          bar: { borderRadius: 4, columnWidth: "55%", distributed: true },
+        },
+        xaxis: {
+          categories: methods,
+          labels: {
+            style: { colors: COLORS.muted, fontSize: "11px" },
+            rotate: -25,
+            rotateAlways: methods.length > 4,
+          },
+        },
+        yaxis: {
+          labels: {
+            style: { colors: COLORS.muted },
+            formatter: (v) => formatDhShort(v),
+          },
+        },
+        legend: { show: false },
+        fill: {
+          type: "gradient",
+          gradient: {
+            shade: "dark",
+            type: "vertical",
+            gradientToColors: ["#0ea5e9"],
+            stops: [0, 100],
+          },
+        },
+      };
+
+      if (charts.gateways) {
+        charts.gateways.updateOptions({
+          xaxis: { categories: methods },
+          plotOptions: options.plotOptions,
+        });
+        charts.gateways.updateSeries([{ name: "إجمالي الإيداع", data: totals }]);
+        return;
+      }
+      charts.gateways = new ApexCharts(el, options);
+      charts.gateways.render();
+    }
+
+    function renderProfitEngine(data) {
+      const el = document.querySelector("#chart-profit");
+      if (!el) return;
+      const categories = (data.dates || []).map(formatChartDate);
+      const options = {
+        ...baseChartOptions(),
+        chart: {
+          ...baseChartOptions().chart,
+          type: "area",
+          height: 380,
+          stacked: false,
+          animations: { enabled: true, easing: "easeinout", speed: 750 },
+        },
+        colors: [COLORS.sales, COLORS.costs, COLORS.profit],
+        stroke: { curve: "smooth", width: [2, 2, 3] },
+        fill: {
+          type: "gradient",
+          gradient: {
+            shadeIntensity: 1,
+            opacityFrom: 0.4,
+            opacityTo: 0.06,
+            stops: [0, 85, 100],
+          },
+        },
+        series: [
+          { name: "إجمالي المبيعات", data: data.sales || [] },
+          { name: "التكاليف", data: data.costs || [] },
+          { name: "الربح الصافي", data: data.net_profit || [] },
+        ],
+        xaxis: {
+          categories,
+          labels: { style: { colors: COLORS.muted, fontSize: "11px" } },
+          axisBorder: { color: COLORS.grid },
+        },
+        yaxis: {
+          labels: {
+            style: { colors: COLORS.muted },
+            formatter: (v) => formatDhShort(v),
+          },
+        },
+        markers: { size: 0, hover: { size: 4 } },
+      };
+
+      if (charts.profit) {
+        charts.profit.updateOptions({ xaxis: { categories }, colors: options.colors });
+        charts.profit.updateSeries(options.series);
+        return;
+      }
+      charts.profit = new ApexCharts(el, options);
+      charts.profit.render();
+    }
+
+    function renderOrdersStatus(data) {
+      const el = document.querySelector("#chart-orders-status");
+      if (!el) return;
+      const labels = data.labels || [];
+      const series = data.series || [];
+      const colors = (labels || []).map((lb) => STATUS_COLORS[lb] || COLORS.muted);
+      const options = {
+        ...baseChartOptions(),
+        chart: { ...baseChartOptions().chart, type: "pie", height: 320 },
+        colors,
+        labels,
+        series,
+        plotOptions: { pie: { expandOnClick: true, dataLabels: { offset: -4 } } },
+        dataLabels: {
+          enabled: true,
+          style: { fontSize: "11px", fontFamily: "Cairo, sans-serif" },
+          formatter: (val) => (val < 4 ? "" : Math.round(val) + "%"),
+        },
+        stroke: { width: 2, colors: ["#0b0f17"] },
+        legend: { position: "bottom" },
+        tooltip: {
+          theme: "dark",
+          y: { formatter: (val, opts) => formatCount(opts.w.globals.series[opts.seriesIndex]) },
+        },
+      };
+
+      if (charts.ordersStatus) {
+        charts.ordersStatus.updateOptions({ labels, colors });
+        charts.ordersStatus.updateSeries(series);
+        return;
+      }
+      charts.ordersStatus = new ApexCharts(el, options);
+      charts.ordersStatus.render();
+    }
+
+    function escapeHtml(str) {
+      const div = document.createElement("div");
+      div.textContent = str == null ? "" : String(str);
+      return div.innerHTML;
+    }
+
+    function userProfileHref(userId) {
+      return `/dashboard/users/${Number(userId)}`;
+    }
+
+    function userProfileLink(userId, innerHtml) {
+      return `<a href="${userProfileHref(userId)}" class="text-blue-400 hover:text-blue-300 underline font-bold" target="_blank" rel="noopener">${innerHtml}</a>`;
+    }
+
+    function renderLeaderboards(data) {
+      const svcBody = document.getElementById("leaderboard-services");
+      const vipBody = document.getElementById("leaderboard-vip");
+      if (!svcBody || !vipBody) return;
+
+      const services = data.top_services || [];
+      const vips = data.top_vip_users || [];
+
+      if (!services.length) {
+        svcBody.innerHTML =
+          '<tr><td colspan="3" class="py-5 text-center text-slate-500 text-xs">لا توجد بيانات خدمات بعد.</td></tr>';
+      } else {
+        svcBody.innerHTML = services
+          .map(
+            (row, i) => `
+          <tr class="hover:bg-slate-800/30 transition">
+            <td class="py-2.5 pe-2">
+              <span class="rank-badge inline-flex h-6 w-6 items-center justify-center bg-sky-500/15 text-sky-300 text-xs font-bold border border-sky-500/30">${i + 1}</span>
+            </td>
+            <td class="py-2.5 pe-3 text-slate-200 font-medium truncate max-w-[12rem]">${escapeHtml(row.name)}</td>
+            <td class="py-2.5 text-end tabular-nums text-sky-300 font-semibold">${formatCount(row.order_count)}</td>
+          </tr>`
+          )
+          .join("");
+      }
+
+      if (!vips.length) {
+        vipBody.innerHTML =
+          '<tr><td colspan="3" class="py-5 text-center text-slate-500 text-xs">لا يوجد عملاء بعد.</td></tr>';
+      } else {
+        vipBody.innerHTML = vips
+          .map(
+            (row, i) => `
+          <tr class="hover:bg-slate-800/30 transition">
+            <td class="py-2.5 pe-2">
+              <span class="rank-badge inline-flex h-6 w-6 items-center justify-center bg-amber-500/15 text-amber-300 text-xs font-bold border border-amber-500/30">${i + 1}</span>
+            </td>
+            <td class="py-2.5 pe-3 text-slate-200 font-medium">${userProfileLink(row.user_id, escapeHtml(row.display_name))}</td>
+            <td class="py-2.5 text-end tabular-nums text-emerald-300 font-semibold">${formatDh(row.total_spent_dh)}</td>
+          </tr>`
+          )
+          .join("");
+      }
+    }
+
+    function populateKpis(summary) {
+      clearKpiSkeleton(els.kpiDeposited, formatDh(summary.total_deposited_dh ?? 0));
+      clearKpiSkeleton(els.kpiFreeMoney, formatDh(summary.total_free_money_dh ?? 0));
+      clearKpiSkeleton(els.kpiLiabilities, formatDh(summary.total_liabilities_dh ?? 0));
+    }
+
+    function renderTabCharts(tabId) {
+      if (!dataCache) return;
+
+      if (tabId === "treasury") {
+        renderCashflow(dataCache.cashflow);
+        renderTreasurySplit(dataCache.summary);
+        renderGateways(dataCache.gateways);
+        tabsRendered.treasury = true;
+      } else if (tabId === "profit") {
+        renderProfitEngine(dataCache.profit);
+        tabsRendered.profit = true;
+      } else if (tabId === "audience") {
+        renderOrdersStatus(dataCache.ordersStatus);
+        tabsRendered.audience = true;
+      }
+    }
+
+    function activateTab(tabId) {
+      if (!tabPanels[tabId]) return;
+      activeTab = tabId;
+
+      tabButtons.forEach((btn) => {
+        const isActive = btn.dataset.tab === tabId;
+        btn.classList.toggle("analytics-tab--active", isActive);
+        btn.setAttribute("aria-selected", isActive ? "true" : "false");
+      });
+
+      Object.entries(tabPanels).forEach(([id, panel]) => {
+        const show = id === tabId;
+        panel.classList.toggle("hidden", !show);
+        panel.hidden = !show;
+      });
+
+      if (dataCache) {
+        renderTabCharts(tabId);
+        resizeTabCharts(tabId);
+      }
+    }
+
+    tabButtons.forEach((btn) => {
+      btn.addEventListener("click", () => activateTab(btn.dataset.tab));
+    });
+
+    function stampUpdated() {
+      els.lastUpdated.textContent =
+        "آخر تحديث: " +
+        new Date().toLocaleString("ar-MA", { dateStyle: "medium", timeStyle: "short" });
+    }
+
+    async function loadDashboard() {
+      if (typeof ApexCharts === "undefined") {
+        showAlert("تعذّر تحميل مكتبة الرسوم البيانية. تحقق من الاتصال بالإنترنت.", "error");
+        return;
+      }
+
+      setLoading(true);
+      hideAlert();
+      try {
+        const [summary, cashflow, gateways, profit, ordersStatus, leaderboards] =
+          await Promise.all([
+            fetchJson("/api/analytics/summary"),
+            fetchJson("/api/analytics/charts/cashflow"),
+            fetchJson("/api/analytics/charts/gateways"),
+            fetchJson("/api/analytics/charts/profit"),
+            fetchJson("/api/analytics/charts/orders-status"),
+            fetchJson("/api/analytics/leaderboards"),
+          ]);
+
+        destroyAllCharts();
+
+        dataCache = { summary, cashflow, gateways, profit, ordersStatus, leaderboards };
+
+        populateKpis(summary);
+        renderLeaderboards(leaderboards);
+
+        renderTabCharts(activeTab);
+        resizeTabCharts(activeTab);
+
+        stampUpdated();
+      } catch (err) {
+        showAlert(err.message || "تعذّر تحميل لوحة التحليلات.", "error");
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    window.addEventListener("resize", () => resizeTabCharts(activeTab));
+
+    async function resetTestData() {
+      const warningText = "هل أنت متأكد؟ هذا سيمسح جميع الطلبات والإيداعات والأرصدة للبدء من الصفر.";
+      const confirmed = window.confirm(warningText);
+      if (!confirmed) return;
+
+      const resetToken = window.prompt("أدخل رمز الأمان RESET_TEST_DATA_TOKEN للتأكيد:");
+      if (!resetToken) {
+        showAlert("تم إلغاء العملية: لم يتم إدخال رمز الأمان.", "error");
+        return;
+      }
+
+      setLoading(true);
+      hideAlert();
+      try {
+        const url = "/api/system/reset-test-data?confirm=RESET_TEST_DATA";
+        const res = await fetch(url, {
+          method: "DELETE",
+          credentials: "same-origin",
+          headers: {
+            "X-Reset-Token": resetToken.trim(),
+          },
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(parseErrorDetail(body));
+
+        showAlert(body.message || "تمت العملية بنجاح. سيتم إعادة تحميل الصفحة…", "success");
+        setTimeout(() => window.location.reload(), 700);
+      } catch (err) {
+        showAlert(err.message || "تعذّر تصفير بيانات الاختبار.", "error");
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    els.refreshBtn?.addEventListener("click", loadDashboard);
+    els.resetTestDataBtn?.addEventListener("click", resetTestData);
+    loadDashboard();
+  })();
+</script>
+{% endblock %}

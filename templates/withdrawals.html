@@ -1,0 +1,798 @@
+{% extends "base.html" %}
+
+
+
+{% block title %}{{ page_title }} — السحوبات{% endblock %}
+
+
+
+{% block header_actions %}
+
+<button
+
+  id="refresh-btn"
+
+  type="button"
+
+  class="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-surface-800 px-3 py-2 text-sm font-medium text-slate-200 hover:bg-surface-700 hover:border-slate-600 transition disabled:opacity-50"
+
+>
+
+  <svg id="refresh-icon" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+
+    <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v6h6M20 20v-6h-6M5 19a9 9 0 0114-7.5M19 5a9 9 0 00-14 7.5" />
+
+  </svg>
+
+  تحديث
+
+</button>
+
+{% endblock %}
+
+
+
+{% block content %}
+
+<section class="space-y-6">
+
+  <div class="flex flex-col sm:flex-row sm:items-end sm:justify-end gap-4">
+
+    <div class="rounded-xl border border-slate-800 bg-surface-900 px-4 py-3 min-w-[120px] ms-auto">
+
+      <p class="text-xs uppercase tracking-wider text-slate-500">معلّق</p>
+
+      <p id="pending-count" class="mt-1 text-2xl font-semibold text-accent-400">—</p>
+
+    </div>
+
+  </div>
+
+
+
+  <div id="alert" class="hidden rounded-lg border px-4 py-3 text-sm" role="alert"></div>
+
+
+
+  <div class="rounded-xl border border-slate-800 bg-surface-900 overflow-hidden shadow-xl shadow-black/20">
+
+    <div id="loading" class="flex items-center justify-center gap-3 py-16 text-slate-400">
+
+      <svg class="h-5 w-5 animate-spin" viewBox="0 0 24 24" fill="none">
+
+        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+
+        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+
+      </svg>
+
+      جاري تحميل طلبات السحب…
+
+    </div>
+
+
+
+    <div id="empty-state" class="hidden py-16 text-center">
+
+      <p class="text-slate-300 font-medium">لا توجد طلبات سحب معلقة</p>
+
+      <p class="mt-1 text-sm text-slate-500">القائمة فارغة حاليًا.</p>
+
+    </div>
+
+
+
+    <div id="table-wrap" class="hidden overflow-x-auto">
+
+      <table class="min-w-full text-sm text-start">
+
+        <thead class="bg-surface-800/80 text-xs uppercase tracking-wider text-slate-400">
+
+          <tr>
+
+            <th class="px-4 py-3 font-medium">المعرّف</th>
+
+            <th class="px-4 py-3 font-medium">المستخدم</th>
+
+            <th class="px-4 py-3 font-medium">المبلغ</th>
+
+            <th class="px-4 py-3 font-medium">النوع</th>
+
+            <th class="px-4 py-3 font-medium">الطريقة</th>
+
+            <th class="px-4 py-3 font-medium">بيانات الاستلام</th>
+
+            <th class="px-4 py-3 font-medium">التاريخ</th>
+
+            <th class="px-4 py-3 font-medium text-end">الإجراءات</th>
+
+          </tr>
+
+        </thead>
+
+        <tbody id="withdrawals-body" class="divide-y divide-slate-800/80"></tbody>
+
+      </table>
+
+    </div>
+
+  </div>
+
+</section>
+
+
+
+<!-- نافذة رفض السحب -->
+
+<div id="reject-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4" aria-hidden="true">
+
+  <div id="reject-backdrop" class="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
+
+  <div class="relative w-full max-w-md rounded-xl border border-slate-700 bg-surface-900 shadow-2xl p-6 space-y-4">
+
+    <h2 class="text-lg font-semibold text-white">رفض وإرجاع الرصيد</h2>
+
+    <p class="text-sm text-slate-400">
+
+      الطلب <span id="reject-modal-label" class="font-mono text-slate-200"></span> —
+
+      سيُعاد المبلغ تلقائيًا إلى رصيد المستخدم.
+
+    </p>
+
+    <div>
+
+      <label for="reject-reason" class="block text-xs font-medium text-slate-400 mb-1">سبب الرفض (يُرسل للمستخدم)</label>
+
+      <textarea
+
+        id="reject-reason"
+
+        rows="3"
+
+        maxlength="500"
+
+        placeholder="مثال: بيانات الحساب غير صحيحة"
+
+        class="w-full rounded-lg border border-slate-600 bg-surface-800 px-3 py-2 text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-red-500 resize-y"
+
+      ></textarea>
+
+    </div>
+
+    <div class="flex gap-2 justify-end pt-2">
+
+      <button
+
+        id="reject-modal-cancel"
+
+        type="button"
+
+        class="rounded-lg border border-slate-600 px-4 py-2 text-sm text-slate-300 hover:bg-surface-800"
+
+      >
+
+        إلغاء
+
+      </button>
+
+      <button
+
+        id="reject-modal-confirm"
+
+        type="button"
+
+        class="rounded-lg bg-red-600 hover:bg-red-500 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+
+      >
+
+        رفض وإرجاع الرصيد
+
+      </button>
+
+    </div>
+
+  </div>
+
+</div>
+
+{% endblock %}
+
+
+
+{% block scripts %}
+
+<script>
+
+  const API_URL = "/api/withdrawals/pending";
+
+
+
+  const METHOD_LABELS = {
+
+    "Binance/Crypto": "باينانس / كريبتو",
+
+    PayPal: "باي بال",
+
+  };
+
+
+
+  const els = {
+
+    alert: document.getElementById("alert"),
+
+    loading: document.getElementById("loading"),
+
+    empty: document.getElementById("empty-state"),
+
+    tableWrap: document.getElementById("table-wrap"),
+
+    tbody: document.getElementById("withdrawals-body"),
+
+    count: document.getElementById("pending-count"),
+
+    refreshBtn: document.getElementById("refresh-btn"),
+
+    refreshIcon: document.getElementById("refresh-icon"),
+
+  };
+
+
+
+  const rejectModal = {
+
+    root: document.getElementById("reject-modal"),
+
+    backdrop: document.getElementById("reject-backdrop"),
+
+    label: document.getElementById("reject-modal-label"),
+
+    reason: document.getElementById("reject-reason"),
+
+    cancel: document.getElementById("reject-modal-cancel"),
+
+    confirm: document.getElementById("reject-modal-confirm"),
+
+  };
+
+
+
+  let pendingRejectId = null;
+
+
+
+  function showAlert(message, type = "error") {
+
+    els.alert.textContent = message;
+
+    els.alert.className =
+
+      "rounded-lg border px-4 py-3 text-sm " +
+
+      (type === "error"
+
+        ? "border-red-900/60 bg-red-950/40 text-red-200"
+
+        : "border-emerald-900/60 bg-emerald-950/40 text-emerald-200");
+
+    els.alert.classList.remove("hidden");
+
+  }
+
+
+
+  function hideAlert() {
+
+    els.alert.classList.add("hidden");
+
+  }
+
+
+
+  function formatAmount(value) {
+
+    const n = Number(value);
+
+    if (Number.isNaN(n)) return value;
+
+    return (
+
+      n.toLocaleString("ar-MA", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) +
+
+      " درهم"
+
+    );
+
+  }
+
+
+
+  function formatMethod(method) {
+
+    if (!method) return "—";
+
+    const key = String(method).trim();
+
+    return METHOD_LABELS[key] || key;
+
+  }
+
+
+
+  function formatDate(iso) {
+
+    if (!iso) return "—";
+
+    try {
+
+      const d = new Date(iso.replace(" ", "T"));
+
+      if (Number.isNaN(d.getTime())) return iso;
+
+      return d.toLocaleString("ar-MA", {
+
+        year: "numeric",
+
+        month: "short",
+
+        day: "numeric",
+
+        hour: "2-digit",
+
+        minute: "2-digit",
+
+      });
+
+    } catch {
+
+      return iso;
+
+    }
+
+  }
+
+
+
+  function escapeHtml(text) {
+
+    const div = document.createElement("div");
+
+    div.textContent = text ?? "";
+
+    return div.innerHTML;
+
+  }
+
+
+
+  function renderDetailsBlock(withdrawal) {
+
+    const lines = withdrawal.details_lines || [];
+
+    if (!lines.length) {
+
+      return '<span class="text-slate-500 text-xs">—</span>';
+
+    }
+
+    return `
+
+      <dl class="space-y-1 text-xs min-w-[160px]">
+
+        ${lines
+
+          .map(
+
+            (line) => `
+
+          <div class="rounded-md bg-surface-800/80 border border-slate-700/60 px-2 py-1">
+
+            <dt class="text-slate-500">${escapeHtml(line.label)}</dt>
+
+            <dd class="font-mono text-slate-200 break-all mt-0.5">${escapeHtml(line.value)}</dd>
+
+          </div>
+
+        `
+
+          )
+
+          .join("")}
+
+      </dl>
+
+    `;
+
+  }
+
+
+
+  function typeBadge(withdrawal) {
+
+    const isReferral = withdrawal.withdrawal_type === "referral";
+
+    const cls = isReferral
+
+      ? "bg-indigo-500/10 text-indigo-300 border-indigo-500/30"
+
+      : "bg-slate-500/10 text-slate-300 border-slate-500/30";
+
+    const label = withdrawal.withdrawal_type_label || (isReferral ? "أرباح إحالة" : "رصيد عادي");
+
+    return `<span class="inline-flex rounded-md border px-2 py-0.5 text-xs font-medium ${cls}">${escapeHtml(label)}</span>`;
+
+  }
+
+
+
+  function userProfileHref(userId) {
+    return `/dashboard/users/${Number(userId)}`;
+  }
+
+  function userProfileLink(userId, innerHtml) {
+    return `<a href="${userProfileHref(userId)}" class="text-blue-400 hover:text-blue-300 underline font-bold" target="_blank" rel="noopener">${innerHtml}</a>`;
+  }
+
+  function renderRow(withdrawal) {
+    const uid = withdrawal.user_id;
+    const userLabel = withdrawal.telegram_name
+      ? `${userProfileLink(uid, escapeHtml(withdrawal.telegram_name))} <span class="text-slate-500">(${userProfileLink(uid, String(uid))})</span>`
+      : userProfileLink(uid, `<span class="font-mono">${uid}</span>`);
+
+
+
+    return `
+
+      <tr class="hover:bg-surface-800/40 transition align-top" data-withdrawal-id="${withdrawal.id}">
+
+        <td class="px-4 py-3 font-mono text-slate-300">#${withdrawal.id}</td>
+
+        <td class="px-4 py-3">${userLabel}</td>
+
+        <td class="px-4 py-3 font-semibold text-emerald-300 whitespace-nowrap">${formatAmount(withdrawal.amount)}</td>
+
+        <td class="px-4 py-3">${typeBadge(withdrawal)}</td>
+
+        <td class="px-4 py-3">
+
+          <span class="inline-flex rounded-md bg-surface-800 px-2 py-1 text-xs font-medium text-slate-200 border border-slate-700">
+
+            ${escapeHtml(formatMethod(withdrawal.method))}
+
+          </span>
+
+        </td>
+
+        <td class="px-4 py-3">${renderDetailsBlock(withdrawal)}</td>
+
+        <td class="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">${formatDate(withdrawal.created_at)}</td>
+
+        <td class="px-4 py-3 text-end whitespace-nowrap align-top">
+
+          <button
+
+            type="button"
+
+            data-action="approve"
+
+            data-withdrawal-id="${withdrawal.id}"
+
+            class="approve-btn inline-flex rounded-lg bg-emerald-600/90 hover:bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-white mb-1 disabled:opacity-50"
+
+          >إتمام السحب</button>
+
+          <button
+
+            type="button"
+
+            data-action="reject"
+
+            data-withdrawal-id="${withdrawal.id}"
+
+            class="reject-btn inline-flex rounded-lg bg-red-600/90 hover:bg-red-500 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+
+          >رفض وإرجاع الرصيد</button>
+
+        </td>
+
+      </tr>
+
+    `;
+
+  }
+
+
+
+  function parseErrorDetail(body) {
+
+    const detail = body?.detail;
+
+    if (!detail) return "فشل تنفيذ الطلب.";
+
+    if (typeof detail === "string") return detail;
+
+    if (detail.message) return detail.message;
+
+    if (Array.isArray(detail)) {
+
+      const msgs = detail.map((item) => item.msg).filter(Boolean);
+
+      if (msgs.length) return msgs.join(" ");
+
+    }
+
+    return "حدث خطأ غير متوقع.";
+
+  }
+
+
+
+  async function postJson(url, payload) {
+
+    const response = await fetch(url, {
+
+      method: "POST",
+
+      headers: { "Content-Type": "application/json" },
+
+      credentials: "same-origin",
+
+      body: JSON.stringify(payload ?? {}),
+
+    });
+
+    const body = await response.json().catch(() => ({}));
+
+    if (!response.ok) throw new Error(parseErrorDetail(body));
+
+    return body;
+
+  }
+
+
+
+  function setLoading(isLoading) {
+
+    els.refreshBtn.disabled = isLoading;
+
+    els.refreshIcon.classList.toggle("animate-spin", isLoading);
+
+    if (isLoading) els.loading.classList.remove("hidden");
+
+    else els.loading.classList.add("hidden");
+
+  }
+
+
+
+  function removeRow(withdrawalId) {
+
+    const row = els.tbody.querySelector(`tr[data-withdrawal-id="${withdrawalId}"]`);
+
+    if (row) row.remove();
+
+  }
+
+
+
+  async function loadWithdrawals() {
+
+    hideAlert();
+
+    setLoading(true);
+
+    els.empty.classList.add("hidden");
+
+    els.tableWrap.classList.add("hidden");
+
+
+
+    try {
+
+      const data = await fetch(API_URL, { credentials: "same-origin" }).then((r) => r.json());
+
+      if (!data.withdrawals) throw new Error(parseErrorDetail(data));
+
+
+
+      const items = data.withdrawals;
+
+      els.count.textContent = String(data.count ?? items.length);
+
+
+
+      if (items.length === 0) {
+
+        els.empty.classList.remove("hidden");
+
+        els.tbody.innerHTML = "";
+
+        return;
+
+      }
+
+
+
+      els.tbody.innerHTML = items.map(renderRow).join("");
+
+      els.tableWrap.classList.remove("hidden");
+
+    } catch (err) {
+
+      els.count.textContent = "—";
+
+      showAlert(err.message || "تعذّر تحميل طلبات السحب.");
+
+    } finally {
+
+      setLoading(false);
+
+    }
+
+  }
+
+
+
+  async function approveWithdrawal(withdrawalId, btn) {
+
+    if (!confirm("تأكيد إتمام السحب وتحويل المبلغ للمستخدم؟")) return;
+
+
+
+    btn.disabled = true;
+
+    try {
+
+      await postJson(`/api/withdrawals/${withdrawalId}/approve`);
+
+      removeRow(withdrawalId);
+
+      const remaining = els.tbody.querySelectorAll("tr").length;
+
+      els.count.textContent = String(remaining);
+
+      if (remaining === 0) {
+
+        els.tableWrap.classList.add("hidden");
+
+        els.empty.classList.remove("hidden");
+
+      }
+
+      showAlert("تم إتمام السحب وإشعار المستخدم.", "success");
+
+    } catch (err) {
+
+      showAlert(err.message || "فشل إتمام السحب.");
+
+      btn.disabled = false;
+
+    }
+
+  }
+
+
+
+  function openRejectModal(withdrawalId) {
+
+    pendingRejectId = withdrawalId;
+
+    rejectModal.label.textContent = `#${withdrawalId}`;
+
+    rejectModal.reason.value = "";
+
+    rejectModal.root.classList.remove("hidden");
+
+    rejectModal.reason.focus();
+
+  }
+
+
+
+  function closeRejectModal() {
+
+    pendingRejectId = null;
+
+    rejectModal.root.classList.add("hidden");
+
+  }
+
+
+
+  async function confirmReject() {
+
+    if (!pendingRejectId) return;
+
+    const reason = rejectModal.reason.value.trim();
+
+    if (!reason) {
+
+      showAlert("يرجى إدخال سبب الرفض لإرساله للمستخدم.");
+
+      return;
+
+    }
+
+
+
+    rejectModal.confirm.disabled = true;
+
+    const id = pendingRejectId;
+
+    try {
+
+      await postJson(`/api/withdrawals/${id}/reject`, { reason });
+
+      removeRow(id);
+
+      closeRejectModal();
+
+      const remaining = els.tbody.querySelectorAll("tr").length;
+
+      els.count.textContent = String(remaining);
+
+      if (remaining === 0) {
+
+        els.tableWrap.classList.add("hidden");
+
+        els.empty.classList.remove("hidden");
+
+      }
+
+      showAlert("تم رفض الطلب وإرجاع المبلغ وإشعار المستخدم.", "success");
+
+    } catch (err) {
+
+      showAlert(err.message || "فشل رفض طلب السحب.");
+
+    } finally {
+
+      rejectModal.confirm.disabled = false;
+
+    }
+
+  }
+
+
+
+  els.tbody.addEventListener("click", (e) => {
+
+    const btn = e.target.closest("button[data-action]");
+
+    if (!btn || btn.disabled) return;
+
+    const id = Number(btn.dataset.withdrawalId);
+
+    if (!id) return;
+
+    if (btn.dataset.action === "approve") {
+
+      approveWithdrawal(id, btn);
+
+    } else if (btn.dataset.action === "reject") {
+
+      openRejectModal(id);
+
+    }
+
+  });
+
+
+
+  els.refreshBtn.addEventListener("click", loadWithdrawals);
+
+  rejectModal.backdrop.addEventListener("click", closeRejectModal);
+
+  rejectModal.cancel.addEventListener("click", closeRejectModal);
+
+  rejectModal.confirm.addEventListener("click", confirmReject);
+
+
+
+  loadWithdrawals();
+
+</script>
+
+{% endblock %}
+

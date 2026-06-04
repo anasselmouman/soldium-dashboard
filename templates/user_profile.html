@@ -1,0 +1,526 @@
+{% extends "base.html" %}
+
+{% block title %}{{ page_title }}{% endblock %}
+
+{% block head %}
+<style>
+  .profile-hero {
+    clip-path: polygon(0 0, calc(100% - 16px) 0, 100% 16px, 100% 100%, 16px 100%, 0 calc(100% - 16px));
+    border: 1px solid #243047;
+    background: linear-gradient(135deg, #111827 0%, #0b0f17 50%, rgba(14, 165, 233, 0.06) 100%);
+  }
+  .profile-tabs {
+    clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 0 100%);
+    border: 1px solid #243047;
+    background: linear-gradient(180deg, #111827 0%, #0b0f17 100%);
+  }
+  .profile-tab {
+    color: #94a3b8;
+    border-bottom: 3px solid transparent;
+    transition: color 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+  }
+  .profile-tab:hover {
+    color: #e2e8f0;
+    background: rgba(14, 165, 233, 0.06);
+  }
+  .profile-tab--active {
+    color: #7dd3fc;
+    border-bottom-color: #0ea5e9;
+    background: rgba(14, 165, 233, 0.1);
+  }
+  .trust-pill--green {
+    border-color: rgba(52, 211, 153, 0.45);
+    background: rgba(52, 211, 153, 0.1);
+    color: #6ee7b7;
+  }
+  .trust-pill--amber {
+    border-color: rgba(251, 191, 36, 0.45);
+    background: rgba(251, 191, 36, 0.1);
+    color: #fcd34d;
+  }
+  .trust-pill--red {
+    border-color: rgba(248, 113, 113, 0.45);
+    background: rgba(248, 113, 113, 0.1);
+    color: #fca5a5;
+  }
+</style>
+{% endblock %}
+
+{% block header_actions %}
+<a
+  href="/users"
+  class="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-surface-800 px-3 py-2 text-sm font-medium text-slate-200 hover:bg-surface-700 transition"
+>
+  العودة إلى المستخدمين
+</a>
+<button
+  id="refresh-btn"
+  type="button"
+  class="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-surface-800 px-3 py-2 text-sm font-medium text-slate-200 hover:bg-surface-700 transition disabled:opacity-50"
+>
+  <svg id="refresh-icon" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+    <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v6h6M20 20v-6h-6M5 19a9 9 0 0114-7.5M19 5a9 9 0 00-14 7.5" />
+  </svg>
+  تحديث الملف
+</button>
+{% endblock %}
+
+{% block content %}
+<section class="space-y-6" data-user-id="{{ profile_user_id }}">
+  <div id="alert" class="hidden rounded-lg border px-4 py-3 text-sm" role="alert"></div>
+
+  <div id="profile-loading" class="soldium-cut-card p-10 flex items-center justify-center gap-3 text-slate-400">
+    <svg class="h-5 w-5 animate-spin" viewBox="0 0 24 24" fill="none">
+      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+      <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+    </svg>
+    جاري تحميل الملف الشامل للعميل…
+  </div>
+
+  <div id="profile-content" class="hidden space-y-6">
+    <header class="profile-hero soldium-cut-card p-6 sm:p-8">
+      <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-6">
+        <div class="space-y-2">
+          <p class="text-xs font-semibold tracking-widest text-accent-400 uppercase">الملف الشامل للعميل</p>
+          <h2 id="profile-display-name" class="text-2xl sm:text-3xl font-bold text-white">—</h2>
+          <p class="text-sm text-slate-400">
+            معرّف تيليغرام:
+            <span id="profile-user-id" class="font-mono text-slate-200">{{ profile_user_id }}</span>
+          </p>
+          <p class="text-xs text-slate-500">
+            تاريخ أول نشاط مسجّل:
+            <span id="profile-joined" class="text-slate-300">—</span>
+          </p>
+        </div>
+        <div id="trust-badge" class="inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-semibold shrink-0 trust-pill--green">
+          <span class="h-2.5 w-2.5 rounded-full bg-current opacity-80" aria-hidden="true"></span>
+          <span id="trust-label">—</span>
+        </div>
+      </div>
+
+      <div class="mt-6 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+        <div class="rounded-lg border border-slate-800 bg-surface-900/80 px-4 py-3">
+          <p class="text-[10px] uppercase tracking-wider text-slate-500">الرصيد الرئيسي</p>
+          <p id="kpi-balance" class="mt-1 text-lg font-bold text-emerald-300 tabular-nums">—</p>
+        </div>
+        <div class="rounded-lg border border-slate-800 bg-surface-900/80 px-4 py-3">
+          <p class="text-[10px] uppercase tracking-wider text-slate-500">رصيد الإحالة</p>
+          <p id="kpi-referral-balance" class="mt-1 text-lg font-bold text-amber-300 tabular-nums">—</p>
+        </div>
+        <div class="rounded-lg border border-slate-800 bg-surface-900/80 px-4 py-3">
+          <p class="text-[10px] uppercase tracking-wider text-slate-500">إجمالي الإنفاق</p>
+          <p id="kpi-total-spent" class="mt-1 text-lg font-bold text-white tabular-nums">—</p>
+        </div>
+        <div class="rounded-lg border border-slate-800 bg-surface-900/80 px-4 py-3">
+          <p class="text-[10px] uppercase tracking-wider text-slate-500">مستوى الإحالة</p>
+          <p id="kpi-referral-level" class="mt-1 text-lg font-bold text-accent-300">—</p>
+        </div>
+        <div class="rounded-lg border border-slate-800 bg-surface-900/80 px-4 py-3 col-span-2 md:col-span-1">
+          <p class="text-[10px] uppercase tracking-wider text-slate-500">دعوات مُسجّلة</p>
+          <p id="kpi-referrals" class="mt-1 text-lg font-bold text-sky-300 tabular-nums">—</p>
+        </div>
+      </div>
+    </header>
+
+    <div class="flex flex-col sm:flex-row gap-3">
+      <div class="flex-1 relative">
+        <label for="log-search" class="sr-only">بحث في السجلات</label>
+        <input
+          id="log-search"
+          type="search"
+          placeholder="بحث سريع داخل السجلات (معرّف، مبلغ، حالة، خدمة…)…"
+          class="w-full rounded-lg border border-slate-700 bg-surface-900 py-2.5 ps-10 pe-4 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-accent-500"
+        />
+        <svg class="absolute start-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+        </svg>
+      </div>
+    </div>
+
+    <nav class="profile-tabs overflow-x-auto" aria-label="سجلات العميل">
+      <div class="flex min-w-max" role="tablist">
+        <button type="button" role="tab" class="profile-tab profile-tab--active flex-1 px-5 py-3 text-sm font-semibold whitespace-nowrap" data-tab="deposits" aria-selected="true">
+          سجل الإيداعات
+        </button>
+        <button type="button" role="tab" class="profile-tab flex-1 px-5 py-3 text-sm font-semibold whitespace-nowrap" data-tab="orders" aria-selected="false">
+          سجل الطلبات
+        </button>
+        <button type="button" role="tab" class="profile-tab flex-1 px-5 py-3 text-sm font-semibold whitespace-nowrap" data-tab="withdrawals" aria-selected="false">
+          سجل السحوبات
+        </button>
+      </div>
+    </nav>
+
+    <div id="panel-deposits" class="tab-panel rounded-xl border border-slate-800 bg-surface-900 overflow-hidden shadow-xl shadow-black/20" role="tabpanel">
+      <div class="overflow-x-auto">
+        <table class="min-w-full text-sm text-start">
+          <thead class="bg-surface-800/80 text-xs uppercase tracking-wider text-slate-400">
+            <tr>
+              <th class="px-4 py-3 font-medium">المعرّف</th>
+              <th class="px-4 py-3 font-medium">النوع</th>
+              <th class="px-4 py-3 font-medium">المبلغ</th>
+              <th class="px-4 py-3 font-medium">طريقة الدفع</th>
+              <th class="px-4 py-3 font-medium">الحالة</th>
+              <th class="px-4 py-3 font-medium">التاريخ</th>
+            </tr>
+          </thead>
+          <tbody id="deposits-body" class="divide-y divide-slate-800/80"></tbody>
+        </table>
+      </div>
+      <p id="deposits-empty" class="hidden py-12 text-center text-sm text-slate-500">لا توجد إيداعات مسجّلة لهذا العميل.</p>
+    </div>
+
+    <div id="panel-orders" class="tab-panel hidden rounded-xl border border-slate-800 bg-surface-900 overflow-hidden shadow-xl shadow-black/20" role="tabpanel">
+      <div class="overflow-x-auto">
+        <table class="min-w-full text-sm text-start">
+          <thead class="bg-surface-800/80 text-xs uppercase tracking-wider text-slate-400">
+            <tr>
+              <th class="px-4 py-3 font-medium">المعرّف</th>
+              <th class="px-4 py-3 font-medium">الخدمة</th>
+              <th class="px-4 py-3 font-medium">الكمية</th>
+              <th class="px-4 py-3 font-medium">المبلغ</th>
+              <th class="px-4 py-3 font-medium">الحالة</th>
+              <th class="px-4 py-3 font-medium">التاريخ</th>
+            </tr>
+          </thead>
+          <tbody id="orders-body" class="divide-y divide-slate-800/80"></tbody>
+        </table>
+      </div>
+      <p id="orders-empty" class="hidden py-12 text-center text-sm text-slate-500">لا توجد طلبات مسجّلة لهذا العميل.</p>
+    </div>
+
+    <div id="panel-withdrawals" class="tab-panel hidden rounded-xl border border-slate-800 bg-surface-900 overflow-hidden shadow-xl shadow-black/20" role="tabpanel">
+      <div class="overflow-x-auto">
+        <table class="min-w-full text-sm text-start">
+          <thead class="bg-surface-800/80 text-xs uppercase tracking-wider text-slate-400">
+            <tr>
+              <th class="px-4 py-3 font-medium">المعرّف</th>
+              <th class="px-4 py-3 font-medium">المبلغ</th>
+              <th class="px-4 py-3 font-medium">النوع</th>
+              <th class="px-4 py-3 font-medium">الطريقة</th>
+              <th class="px-4 py-3 font-medium">الحالة</th>
+              <th class="px-4 py-3 font-medium">التاريخ</th>
+            </tr>
+          </thead>
+          <tbody id="withdrawals-body" class="divide-y divide-slate-800/80"></tbody>
+        </table>
+      </div>
+      <p id="withdrawals-empty" class="hidden py-12 text-center text-sm text-slate-500">لا توجد سحوبات مسجّلة لهذا العميل.</p>
+    </div>
+  </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const PROFILE_USER_ID = {{ profile_user_id }};
+  const API_URL = `/api/users/${PROFILE_USER_ID}/full-logs`;
+
+  const REFERRAL_LEVEL_NAMES = {
+    1: "ناشر",
+    2: "محترف",
+    3: "خبير",
+    4: "شريك",
+  };
+
+  const METHOD_LABELS = {
+    "Binance/Crypto": "باينانس / كريبتو",
+    PayPal: "باي بال",
+  };
+
+  const state = {
+    activeTab: "deposits",
+    search: "",
+    data: null,
+  };
+
+  const els = {
+    alert: document.getElementById("alert"),
+    loading: document.getElementById("profile-loading"),
+    content: document.getElementById("profile-content"),
+    refreshBtn: document.getElementById("refresh-btn"),
+    refreshIcon: document.getElementById("refresh-icon"),
+    search: document.getElementById("log-search"),
+    displayName: document.getElementById("profile-display-name"),
+    joined: document.getElementById("profile-joined"),
+    trustBadge: document.getElementById("trust-badge"),
+    trustLabel: document.getElementById("trust-label"),
+    kpiBalance: document.getElementById("kpi-balance"),
+    kpiReferralBalance: document.getElementById("kpi-referral-balance"),
+    kpiTotalSpent: document.getElementById("kpi-total-spent"),
+    kpiReferralLevel: document.getElementById("kpi-referral-level"),
+    kpiReferrals: document.getElementById("kpi-referrals"),
+    depositsBody: document.getElementById("deposits-body"),
+    ordersBody: document.getElementById("orders-body"),
+    withdrawalsBody: document.getElementById("withdrawals-body"),
+    depositsEmpty: document.getElementById("deposits-empty"),
+    ordersEmpty: document.getElementById("orders-empty"),
+    withdrawalsEmpty: document.getElementById("withdrawals-empty"),
+    panelDeposits: document.getElementById("panel-deposits"),
+    panelOrders: document.getElementById("panel-orders"),
+    panelWithdrawals: document.getElementById("panel-withdrawals"),
+  };
+
+  const tabButtons = document.querySelectorAll(".profile-tab[data-tab]");
+
+  function showAlert(message, type = "error") {
+    els.alert.textContent = message;
+    els.alert.className =
+      "rounded-lg border px-4 py-3 text-sm " +
+      (type === "error"
+        ? "border-red-900/60 bg-red-950/40 text-red-200"
+        : "border-emerald-900/60 bg-emerald-950/40 text-emerald-200");
+    els.alert.classList.remove("hidden");
+  }
+
+  function hideAlert() {
+    els.alert.classList.add("hidden");
+  }
+
+  function escapeHtml(text) {
+    const div = document.createElement("div");
+    div.textContent = text ?? "";
+    return div.innerHTML;
+  }
+
+  function parseErrorDetail(body) {
+    const detail = body?.detail;
+    if (!detail) return "فشل تحميل الملف الشامل.";
+    if (typeof detail === "string") return detail;
+    if (detail.message) return detail.message;
+    return "حدث خطأ غير متوقع.";
+  }
+
+  function formatDh(value) {
+    const n = Number(value);
+    if (Number.isNaN(n)) return "—";
+    return n.toLocaleString("ar-MA", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " درهم";
+  }
+
+  function formatLevel(level) {
+    const n = Number(level) || 1;
+    const name = REFERRAL_LEVEL_NAMES[n] || "";
+    return name ? `المستوى ${n} — ${name}` : `المستوى ${n}`;
+  }
+
+  function formatMethod(method) {
+    const key = String(method || "").trim();
+    return METHOD_LABELS[key] || key || "—";
+  }
+
+  function formatDate(value) {
+    if (!value) return "—";
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return escapeHtml(String(value));
+    return d.toLocaleString("ar-MA", { dateStyle: "medium", timeStyle: "short" });
+  }
+
+  function formatDepositStatus(status) {
+    const raw = String(status || "");
+    if (raw === "pending") return "قيد الانتظار";
+    if (raw === "rejected") return "مرفوض";
+    if (raw === "completed") return "مكتمل";
+    if (raw.startsWith("approved:")) {
+      const amount = raw.slice("approved:".length);
+      return `مقبول (${formatDh(amount)})`;
+    }
+    return raw || "—";
+  }
+
+  function formatWithdrawalStatus(status) {
+    const map = {
+      pending: "قيد الانتظار",
+      completed: "مكتمل",
+      rejected: "مرفوض",
+    };
+    return map[String(status || "").toLowerCase()] || status || "—";
+  }
+
+  function matchesSearch(haystack) {
+    if (!state.search) return true;
+    return haystack.toLowerCase().includes(state.search);
+  }
+
+  function applyTrustBadge(trust) {
+    const color = trust?.color || "green";
+    els.trustBadge.className =
+      "inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-semibold shrink-0 trust-pill--" +
+      color;
+    els.trustLabel.textContent = trust?.label || "—";
+  }
+
+  function renderDeposits(rows) {
+    const filtered = rows.filter((row) => {
+      const text = [
+        row.id,
+        row.record_type,
+        row.amount,
+        row.deposit_method,
+        row.status,
+        row.created_at,
+      ].join(" ");
+      return matchesSearch(text);
+    });
+
+    if (!filtered.length) {
+      els.depositsBody.innerHTML = "";
+      els.depositsEmpty.classList.remove("hidden");
+      els.depositsEmpty.textContent = state.search
+        ? "لا توجد نتائج مطابقة في سجل الإيداعات."
+        : "لا توجد إيداعات مسجّلة لهذا العميل.";
+      return;
+    }
+
+    els.depositsEmpty.classList.add("hidden");
+    els.depositsBody.innerHTML = filtered
+      .map((row) => {
+        const typeLabel = row.record_type === "ledger" ? "قيد مالي" : "طلب إيداع";
+        return `
+          <tr class="hover:bg-surface-800/40 transition">
+            <td class="px-4 py-3 font-mono text-slate-300">#${row.id}</td>
+            <td class="px-4 py-3 text-xs text-slate-400">${escapeHtml(typeLabel)}</td>
+            <td class="px-4 py-3 font-semibold text-emerald-300">${formatDh(row.amount)}</td>
+            <td class="px-4 py-3">${escapeHtml(formatMethod(row.deposit_method))}</td>
+            <td class="px-4 py-3 text-slate-200">${escapeHtml(formatDepositStatus(row.status))}</td>
+            <td class="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">${formatDate(row.created_at)}</td>
+          </tr>`;
+      })
+      .join("");
+  }
+
+  function renderOrders(rows) {
+    const filtered = rows.filter((row) => {
+      const text = [row.id, row.service_name, row.amount, row.status, row.created_at].join(" ");
+      return matchesSearch(text);
+    });
+
+    if (!filtered.length) {
+      els.ordersBody.innerHTML = "";
+      els.ordersEmpty.classList.remove("hidden");
+      els.ordersEmpty.textContent = state.search
+        ? "لا توجد نتائج مطابقة في سجل الطلبات."
+        : "لا توجد طلبات مسجّلة لهذا العميل.";
+      return;
+    }
+
+    els.ordersEmpty.classList.add("hidden");
+    els.ordersBody.innerHTML = filtered
+      .map(
+        (row) => `
+        <tr class="hover:bg-surface-800/40 transition">
+          <td class="px-4 py-3 font-mono text-slate-300">${row.id}</td>
+          <td class="px-4 py-3 text-slate-200 max-w-[200px] truncate" title="${escapeHtml(row.service_name)}">${escapeHtml(row.service_name)}</td>
+          <td class="px-4 py-3 text-slate-300">${row.quantity}</td>
+          <td class="px-4 py-3 font-semibold text-emerald-300">${formatDh(row.amount)}</td>
+          <td class="px-4 py-3 text-slate-200">${escapeHtml(row.status)}</td>
+          <td class="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">${formatDate(row.created_at)}</td>
+        </tr>`
+      )
+      .join("");
+  }
+
+  function renderWithdrawals(rows) {
+    const filtered = rows.filter((row) => {
+      const text = [row.id, row.amount, row.method, row.status, row.withdrawal_type].join(" ");
+      return matchesSearch(text);
+    });
+
+    if (!filtered.length) {
+      els.withdrawalsBody.innerHTML = "";
+      els.withdrawalsEmpty.classList.remove("hidden");
+      els.withdrawalsEmpty.textContent = state.search
+        ? "لا توجد نتائج مطابقة في سجل السحوبات."
+        : "لا توجد سحوبات مسجّلة لهذا العميل.";
+      return;
+    }
+
+    els.withdrawalsEmpty.classList.add("hidden");
+    els.withdrawalsBody.innerHTML = filtered
+      .map((row) => {
+        const typeLabel = row.withdrawal_type === "referral" ? "أرباح إحالة" : "رصيد عادي";
+        return `
+          <tr class="hover:bg-surface-800/40 transition">
+            <td class="px-4 py-3 font-mono text-slate-300">#${row.id}</td>
+            <td class="px-4 py-3 font-semibold text-emerald-300">${formatDh(row.amount)}</td>
+            <td class="px-4 py-3 text-xs text-slate-300">${escapeHtml(typeLabel)}</td>
+            <td class="px-4 py-3">${escapeHtml(formatMethod(row.method))}</td>
+            <td class="px-4 py-3">${escapeHtml(formatWithdrawalStatus(row.status))}</td>
+            <td class="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">${formatDate(row.created_at)}</td>
+          </tr>`;
+      })
+      .join("");
+  }
+
+  function renderActiveTab() {
+    if (!state.data) return;
+    renderDeposits(state.data.deposits || []);
+    renderOrders(state.data.orders || []);
+    renderWithdrawals(state.data.withdrawals || []);
+  }
+
+  function switchTab(tabId) {
+    state.activeTab = tabId;
+    tabButtons.forEach((btn) => {
+      const active = btn.dataset.tab === tabId;
+      btn.classList.toggle("profile-tab--active", active);
+      btn.setAttribute("aria-selected", active ? "true" : "false");
+    });
+    els.panelDeposits.classList.toggle("hidden", tabId !== "deposits");
+    els.panelOrders.classList.toggle("hidden", tabId !== "orders");
+    els.panelWithdrawals.classList.toggle("hidden", tabId !== "withdrawals");
+  }
+
+  function fillProfile(data) {
+    const info = data.user_info || {};
+    const name = info.telegram_name
+      ? info.telegram_name
+      : `عميل #${info.user_id || PROFILE_USER_ID}`;
+    els.displayName.textContent = name;
+    els.joined.textContent = info.joined_at ? formatDate(info.joined_at) : "غير متوفر";
+    applyTrustBadge(info.trust_status);
+    els.kpiBalance.textContent = formatDh(info.balance);
+    els.kpiReferralBalance.textContent = formatDh(info.referral_balance);
+    els.kpiTotalSpent.textContent = formatDh(info.total_spent);
+    els.kpiReferralLevel.textContent = formatLevel(info.referral_level);
+    const refCount = data.referrals?.count ?? info.referrals_count ?? 0;
+    els.kpiReferrals.textContent = String(refCount);
+  }
+
+  async function loadProfile() {
+    hideAlert();
+    els.loading.classList.remove("hidden");
+    els.content.classList.add("hidden");
+    els.refreshBtn.disabled = true;
+    els.refreshIcon.classList.add("animate-spin");
+
+    try {
+      const response = await fetch(API_URL, { credentials: "same-origin" });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(parseErrorDetail(body));
+
+      state.data = body;
+      fillProfile(body);
+      renderActiveTab();
+      els.content.classList.remove("hidden");
+    } catch (err) {
+      showAlert(err.message || "تعذّر تحميل الملف الشامل للعميل.");
+    } finally {
+      els.loading.classList.add("hidden");
+      els.refreshBtn.disabled = false;
+      els.refreshIcon.classList.remove("animate-spin");
+    }
+  }
+
+  tabButtons.forEach((btn) => {
+    btn.addEventListener("click", () => switchTab(btn.dataset.tab));
+  });
+
+  els.search.addEventListener("input", () => {
+    state.search = els.search.value.trim().toLowerCase();
+    renderActiveTab();
+  });
+
+  els.refreshBtn.addEventListener("click", loadProfile);
+  loadProfile();
+</script>
+{% endblock %}

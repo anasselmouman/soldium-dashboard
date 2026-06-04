@@ -1,0 +1,491 @@
+{% extends "base.html" %}
+
+{% block title %}{{ page_title }}{% endblock %}
+
+{% block content %}
+<section class="space-y-6">
+  <div id="alert" class="hidden rounded-lg border px-4 py-3 text-sm" role="alert"></div>
+
+  <div class="flex flex-wrap gap-3 text-sm">
+    <div class="rounded-xl border border-slate-800 bg-surface-900 px-4 py-2">
+      <span class="text-slate-500">إجمالي (مع الفلتر):</span>
+      <span id="stat-total" class="font-semibold text-white ms-1">—</span>
+    </div>
+    <div class="rounded-xl border border-slate-800 bg-surface-900 px-4 py-2">
+      <span class="text-slate-500">نشطة:</span>
+      <span id="stat-active" class="font-semibold text-emerald-300 ms-1">—</span>
+    </div>
+    <div class="rounded-xl border border-amber-900/40 bg-amber-950/20 px-4 py-2">
+      <span class="text-slate-500">بانتظار المراجعة:</span>
+      <span id="stat-pending" class="font-semibold text-amber-300 ms-1">—</span>
+    </div>
+  </div>
+
+  <div class="soldium-cut-card p-4">
+    <div class="flex flex-col gap-4 lg:flex-row lg:flex-wrap lg:items-end">
+      <div class="flex-1 min-w-[200px]">
+        <label for="categoryFilter" class="block text-xs font-medium text-slate-400 mb-1.5">التصنيف</label>
+        <select
+          id="categoryFilter"
+          class="w-full rounded-lg border border-slate-600 bg-surface-800 px-3 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-accent-500"
+        >
+          <option value="">جميع الفئات</option>
+        </select>
+      </div>
+      <div class="flex-[2] min-w-[220px]">
+        <label for="searchInput" class="block text-xs font-medium text-slate-400 mb-1.5">بحث</label>
+        <input
+          type="search"
+          id="searchInput"
+          placeholder="بحث بالاسم أو المعرف…"
+          autocomplete="off"
+          class="w-full rounded-lg border border-slate-600 bg-surface-800 px-3 py-2.5 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-accent-500"
+        />
+      </div>
+      <div class="flex flex-wrap gap-2 lg:ms-auto">
+        <button
+          id="sync-btn"
+          type="button"
+          class="inline-flex items-center gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-2.5 text-sm font-medium text-amber-200 hover:bg-amber-500/20 transition disabled:opacity-50"
+        >
+          <svg id="sync-icon" class="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v6h6M20 20v-6h-6M5 19a9 9 0 0114-7.5M19 5a9 9 0 00-14 7.5" />
+          </svg>
+          مزامنة مع المزوّد
+        </button>
+        <button
+          id="refresh-btn"
+          type="button"
+          class="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-surface-800 px-4 py-2.5 text-sm font-medium text-slate-200 hover:bg-surface-700 transition disabled:opacity-50"
+        >
+          تحديث
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <p class="text-xs text-slate-500 leading-relaxed">
+    التعديلات تُحفظ تلقائيًا. الخدمات الجديدة من المزامنة تكون <strong class="text-amber-300 font-medium">غير نشطة</strong> حتى تفعّلها.
+  </p>
+
+  <div class="soldium-cut-card overflow-hidden shadow-xl shadow-black/20">
+    <div id="loading" class="flex items-center justify-center gap-3 py-16 text-slate-400">
+      <svg class="h-5 w-5 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+      </svg>
+      جاري تحميل الكتالوج…
+    </div>
+
+    <div id="table-wrap" class="hidden">
+      <div class="overflow-x-auto">
+        <table class="min-w-full text-sm text-start">
+          <thead class="bg-surface-800/80 text-xs uppercase tracking-wider text-slate-400">
+            <tr>
+              <th class="px-3 py-3 font-medium">المعرّف</th>
+              <th class="px-3 py-3 font-medium">التصنيف</th>
+              <th class="px-3 py-3 font-medium min-w-[200px]">الاسم (عربي)</th>
+              <th class="px-3 py-3 font-medium">سعر المزوّد ($/1000)</th>
+              <th class="px-3 py-3 font-medium">السعر المحلي (درهم/1000)</th>
+              <th class="px-3 py-3 font-medium text-center">نشط</th>
+              <th class="px-3 py-3 font-medium text-center">الحالة</th>
+            </tr>
+          </thead>
+          <tbody id="catalog-body" class="divide-y divide-slate-800/80"></tbody>
+        </table>
+      </div>
+
+      <div
+        id="pagination"
+        class="hidden flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-slate-800/80 bg-surface-900/50 px-4 py-3"
+      >
+        <p id="page-info" class="text-sm text-slate-400">صفحة 1 من 1</p>
+        <div class="flex items-center gap-2">
+          <button
+            id="prev-page"
+            type="button"
+            class="rounded-lg border border-slate-700 bg-surface-800 px-4 py-2 text-sm font-medium text-slate-200 hover:bg-surface-700 transition disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            السابق
+          </button>
+          <button
+            id="next-page"
+            type="button"
+            class="rounded-lg border border-slate-700 bg-surface-800 px-4 py-2 text-sm font-medium text-slate-200 hover:bg-surface-700 transition disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            التالي
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div id="empty-state" class="hidden py-12 text-center text-slate-500 text-sm">
+      لا توجد خدمات تطابق البحث أو التصنيف المحدد.
+    </div>
+  </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const SAVE_DEBOUNCE_MS = 600;
+  const PAGE_LIMIT = 50;
+
+  const state = {
+    items: [],
+    saveTimers: new Map(),
+    page: 1,
+    totalPages: 1,
+    totalItems: 0,
+    category: "",
+    search: "",
+    categories: [],
+  };
+
+  const els = {
+    alert: document.getElementById("alert"),
+    loading: document.getElementById("loading"),
+    tableWrap: document.getElementById("table-wrap"),
+    emptyState: document.getElementById("empty-state"),
+    tbody: document.getElementById("catalog-body"),
+    statTotal: document.getElementById("stat-total"),
+    statActive: document.getElementById("stat-active"),
+    statPending: document.getElementById("stat-pending"),
+    categoryFilter: document.getElementById("categoryFilter"),
+    searchInput: document.getElementById("searchInput"),
+    syncBtn: document.getElementById("sync-btn"),
+    syncIcon: document.getElementById("sync-icon"),
+    refreshBtn: document.getElementById("refresh-btn"),
+    pagination: document.getElementById("pagination"),
+    pageInfo: document.getElementById("page-info"),
+    prevPage: document.getElementById("prev-page"),
+    nextPage: document.getElementById("next-page"),
+  };
+
+  function showAlert(message, type = "error") {
+    els.alert.textContent = message;
+    els.alert.className =
+      "rounded-lg border px-4 py-3 text-sm " +
+      (type === "error"
+        ? "border-red-900/60 bg-red-950/40 text-red-200"
+        : "border-emerald-900/60 bg-emerald-950/40 text-emerald-200");
+    els.alert.classList.remove("hidden");
+  }
+
+  function hideAlert() {
+    els.alert.classList.add("hidden");
+  }
+
+  function parseDetail(body) {
+    const d = body?.detail;
+    if (typeof d === "string") return d;
+    return "فشل تنفيذ الطلب.";
+  }
+
+  async function fetchJson(url, options) {
+    const res = await fetch(url, { credentials: "same-origin", ...options });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(parseDetail(body));
+    return body;
+  }
+
+  function buildServicesUrl() {
+    const params = new URLSearchParams();
+    params.set("page", String(state.page));
+    params.set("limit", String(PAGE_LIMIT));
+    if (state.category) params.set("category", state.category);
+    if (state.search) params.set("search", state.search);
+    return `/api/services?${params.toString()}`;
+  }
+
+  function formatUsd(v) {
+    if (v == null || v === "") return "—";
+    const n = Number(v);
+    if (Number.isNaN(n)) return "—";
+    return n.toLocaleString("en-US", { minimumFractionDigits: 4, maximumFractionDigits: 4 });
+  }
+
+  function escapeHtml(t) {
+    const d = document.createElement("div");
+    d.textContent = t ?? "";
+    return d.innerHTML;
+  }
+
+  function updateStats(data) {
+    els.statTotal.textContent = String(data.total_items ?? 0);
+    els.statActive.textContent = String(data.active_count ?? 0);
+    els.statPending.textContent = String(data.pending_count ?? 0);
+  }
+
+  function updatePagination() {
+    const page = state.page;
+    const total = state.totalPages;
+    els.pageInfo.textContent = `صفحة ${page.toLocaleString("ar-MA")} من ${total.toLocaleString("ar-MA")}`;
+    els.prevPage.disabled = page <= 1;
+    els.nextPage.disabled = page >= total;
+    els.pagination.classList.toggle("hidden", state.totalItems === 0);
+  }
+
+  function populateCategories(categories, selected) {
+    const current = selected ?? els.categoryFilter.value;
+    els.categoryFilter.innerHTML = '<option value="">جميع الفئات</option>';
+    (categories || []).forEach((cat) => {
+      const opt = document.createElement("option");
+      opt.value = cat;
+      opt.textContent = cat;
+      els.categoryFilter.appendChild(opt);
+    });
+    els.categoryFilter.value = current;
+    state.categories = categories || [];
+  }
+
+  function rowStatusBadge(item) {
+    if (!item.is_active) {
+      return '<span class="text-[11px] rounded-full px-2 py-0.5 bg-amber-950/50 text-amber-300 border border-amber-800/50">مراجعة</span>';
+    }
+    if (!item.platform_key) {
+      return '<span class="text-[11px] rounded-full px-2 py-0.5 bg-slate-800 text-slate-400">بدون منصة</span>';
+    }
+    return '<span class="text-[11px] rounded-full px-2 py-0.5 bg-emerald-950/40 text-emerald-300 border border-emerald-900/40">منشور</span>';
+  }
+
+  function renderRow(item) {
+    const pending = !item.is_active;
+    const highlight = pending
+      ? "bg-amber-950/25 ring-1 ring-inset ring-amber-500/25"
+      : "hover:bg-surface-800/40";
+    const saving = item._saving ? "opacity-70" : "";
+    return `
+      <tr class="${highlight} ${saving} transition" data-service-id="${escapeHtml(item.service_id)}">
+        <td class="px-3 py-2 font-mono text-slate-400">${escapeHtml(item.service_id)}</td>
+        <td class="px-3 py-2 text-xs text-slate-500 max-w-[180px]">${escapeHtml(item.category)}</td>
+        <td class="px-3 py-2">
+          <input type="text" data-field="name_ar" value="${escapeHtml(item.name_ar)}"
+            class="catalog-field w-full min-w-[180px] rounded border border-slate-700 bg-surface-800 px-2 py-1.5 text-sm text-white focus:ring-2 focus:ring-accent-500" />
+        </td>
+        <td class="px-3 py-2 font-mono text-sky-300 text-xs whitespace-nowrap">${formatUsd(item.provider_price_usd)}</td>
+        <td class="px-3 py-2">
+          <input type="number" step="0.01" min="0" data-field="local_price_dh" value="${Number(item.local_price_dh)}"
+            class="catalog-field w-28 rounded border border-slate-700 bg-surface-800 px-2 py-1.5 text-sm text-emerald-300 font-semibold focus:ring-2 focus:ring-emerald-500" />
+        </td>
+        <td class="px-3 py-2 text-center">
+          <label class="inline-flex items-center justify-center cursor-pointer" title="تفعيل / إيقاف">
+            <input type="checkbox" data-field="is_active" class="catalog-toggle h-4 w-4 rounded border-slate-600 bg-surface-800 text-emerald-500 focus:ring-emerald-500"
+              ${item.is_active ? "checked" : ""} />
+          </label>
+        </td>
+        <td class="px-3 py-2 text-center" data-status-cell>${rowStatusBadge(item)}</td>
+      </tr>
+    `;
+  }
+
+  function applyCatalogData(data) {
+    state.items = (data.services || []).map((i) => ({ ...i }));
+    state.page = data.current_page ?? 1;
+    state.totalPages = data.total_pages ?? 1;
+    state.totalItems = data.total_items ?? 0;
+
+    updateStats(data);
+    updatePagination();
+
+    if (state.items.length === 0) {
+      els.tbody.innerHTML = "";
+      els.tableWrap.classList.remove("hidden");
+      els.emptyState.classList.remove("hidden");
+      els.pagination.classList.add("hidden");
+    } else {
+      els.emptyState.classList.add("hidden");
+      els.tbody.innerHTML = state.items.map(renderRow).join("");
+      els.tableWrap.classList.remove("hidden");
+    }
+  }
+
+  function setLoading(on) {
+    els.loading.classList.toggle("hidden", !on);
+    if (on) {
+      els.tableWrap.classList.add("hidden");
+      els.emptyState.classList.add("hidden");
+    }
+    els.syncBtn.disabled = on;
+    els.refreshBtn.disabled = on;
+    els.categoryFilter.disabled = on;
+    els.searchInput.disabled = on;
+    els.prevPage.disabled = on || els.prevPage.disabled;
+    els.nextPage.disabled = on || els.nextPage.disabled;
+    els.syncIcon?.classList.toggle("animate-spin", on);
+  }
+
+  function findItem(serviceId) {
+    return state.items.find((i) => String(i.service_id) === String(serviceId));
+  }
+
+  function markRow(serviceId, flags) {
+    const item = findItem(serviceId);
+    if (!item) return;
+    Object.assign(item, flags);
+    const row = els.tbody.querySelector(`tr[data-service-id="${CSS.escape(serviceId)}"]`);
+    if (!row) return;
+    if (flags._saved) {
+      row.classList.add("ring-1", "ring-emerald-500/30");
+      setTimeout(() => row.classList.remove("ring-1", "ring-emerald-500/30"), 1200);
+    }
+    if (flags.is_active !== undefined) {
+      const cell = row.querySelector("[data-status-cell]");
+      if (cell) cell.innerHTML = rowStatusBadge(item);
+      row.classList.toggle("bg-amber-950/25", !item.is_active);
+    }
+  }
+
+  async function patchService(serviceId, payload) {
+    markRow(serviceId, { _saving: true });
+    try {
+      const data = await fetchJson(`/api/services/${encodeURIComponent(serviceId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (data.item) {
+        const idx = state.items.findIndex((i) => String(i.service_id) === String(serviceId));
+        if (idx >= 0) state.items[idx] = { ...state.items[idx], ...data.item };
+      }
+      markRow(serviceId, { _saving: false, _saved: true, ...payload });
+    } catch (e) {
+      markRow(serviceId, { _saving: false });
+      showAlert(e.message);
+      throw e;
+    }
+  }
+
+  function scheduleSave(serviceId, payload) {
+    if (state.saveTimers.has(serviceId)) clearTimeout(state.saveTimers.get(serviceId));
+    state.saveTimers.set(
+      serviceId,
+      setTimeout(() => {
+        state.saveTimers.delete(serviceId);
+        patchService(serviceId, payload).catch(() => {});
+      }, SAVE_DEBOUNCE_MS),
+    );
+  }
+
+  function collectRowPayload(row) {
+    const name = row.querySelector('[data-field="name_ar"]')?.value ?? "";
+    const price = Number(row.querySelector('[data-field="local_price_dh"]')?.value);
+    const isActive = row.querySelector('[data-field="is_active"]')?.checked ?? false;
+    return {
+      name_ar: name,
+      local_price_dh: Number.isFinite(price) ? price : 0,
+      is_active: isActive,
+    };
+  }
+
+  async function loadCategories() {
+    const data = await fetchJson("/api/services/categories");
+    populateCategories(data.categories || []);
+  }
+
+  async function loadServices({ resetPage = false } = {}) {
+    if (resetPage) state.page = 1;
+    hideAlert();
+    setLoading(true);
+    try {
+      const data = await fetchJson(buildServicesUrl());
+      applyCatalogData(data);
+    } catch (e) {
+      showAlert(e.message);
+    } finally {
+      setLoading(false);
+      els.prevPage.disabled = state.page <= 1;
+      els.nextPage.disabled = state.page >= state.totalPages;
+    }
+  }
+
+  async function syncProvider() {
+    hideAlert();
+    setLoading(true);
+    try {
+      const data = await fetchJson("/api/services/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      });
+      if (data.categories) populateCategories(data.categories, state.category);
+      state.page = 1;
+      await loadServices();
+      showAlert(data.message || "تمت المزامنة بنجاح.", "success");
+    } catch (e) {
+      showAlert(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  els.categoryFilter.addEventListener("change", () => {
+    state.category = els.categoryFilter.value;
+    loadServices({ resetPage: true });
+  });
+
+  els.searchInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      state.search = els.searchInput.value.trim();
+      loadServices({ resetPage: true });
+    }
+  });
+
+  els.prevPage.addEventListener("click", () => {
+    if (state.page > 1) {
+      state.page -= 1;
+      loadServices();
+    }
+  });
+
+  els.nextPage.addEventListener("click", () => {
+    if (state.page < state.totalPages) {
+      state.page += 1;
+      loadServices();
+    }
+  });
+
+  els.tbody.addEventListener("input", (e) => {
+    const row = e.target.closest("tr[data-service-id]");
+    if (!row || !e.target.classList.contains("catalog-field")) return;
+    const serviceId = row.dataset.serviceId;
+    const payload = collectRowPayload(row);
+    if (e.target.dataset.field === "name_ar") {
+      scheduleSave(serviceId, { name_ar: payload.name_ar });
+    } else if (e.target.dataset.field === "local_price_dh") {
+      scheduleSave(serviceId, { local_price_dh: payload.local_price_dh });
+    }
+  });
+
+  els.tbody.addEventListener("change", (e) => {
+    if (!e.target.classList.contains("catalog-toggle")) return;
+    const row = e.target.closest("tr[data-service-id]");
+    if (!row) return;
+    const serviceId = row.dataset.serviceId;
+    const payload = collectRowPayload(row);
+    if (!payload.is_active && !confirm("إيقاف هذه الخدمة يخفيها من البوت. متابعة؟")) {
+      e.target.checked = true;
+      return;
+    }
+    patchService(serviceId, { is_active: payload.is_active }).then(() => {
+      showAlert(payload.is_active ? "تم تفعيل الخدمة." : "تم إيقاف الخدمة.", "success");
+    }).catch(() => {});
+  });
+
+  els.syncBtn.addEventListener("click", syncProvider);
+  els.refreshBtn.addEventListener("click", () => loadServices({ resetPage: false }));
+
+  (async function init() {
+    setLoading(true);
+    try {
+      await loadCategories();
+      await loadServices();
+    } catch (e) {
+      showAlert(e.message);
+    } finally {
+      setLoading(false);
+    }
+  })();
+</script>
+{% endblock %}
