@@ -32,6 +32,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="icon" href="/assets/logo.png" type="image/png" />
+  <link rel="apple-touch-icon" href="/assets/logo.png" />
   <link rel="preload" href="/assets/logo.png" as="image" type="image/png" />
   <style>
     .soldium-cut-card {
@@ -203,6 +205,15 @@
           </li>
           <li>
             <a
+              href="/manual-orders"
+              class="flex items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-sm font-medium transition {% if active_nav == 'manual_orders' %}soldium-nav-active{% else %}soldium-nav-idle{% endif %}"
+            >
+              <span>طلبات التنفيذ اليدوي</span>
+              <span id="nav-manual-orders-badge" class="hidden min-w-[1.25rem] rounded-full bg-amber-500/20 border border-amber-500/40 px-1.5 py-0.5 text-[10px] font-bold text-amber-300 text-center leading-none">0</span>
+            </a>
+          </li>
+          <li>
+            <a
               href="/services"
               class="flex items-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium transition {% if active_nav == 'services' %}soldium-nav-active{% else %}soldium-nav-idle{% endif %}"
             >
@@ -229,9 +240,10 @@
           <li>
             <a
               href="/broadcast"
-              class="flex items-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium transition {% if active_nav == 'broadcast' %}soldium-nav-active{% else %}soldium-nav-idle{% endif %}"
+              class="flex items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-sm font-medium transition {% if active_nav == 'broadcast' %}soldium-nav-active{% else %}soldium-nav-idle{% endif %}"
             >
-              نظام البث
+              <span>نظام البث</span>
+              <span id="nav-broadcast-badge" class="hidden min-w-[1.25rem] rounded-full bg-orange-500/20 border border-orange-500/40 px-1.5 py-0.5 text-[10px] font-bold text-orange-300 text-center leading-none">0</span>
             </a>
           </li>
         </ul>
@@ -344,6 +356,38 @@
       await fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" });
       window.location.href = "/login";
     });
+
+    window.updateNavManualOrdersBadge = function (count) {
+      const badge = document.getElementById("nav-manual-orders-badge");
+      if (!badge) return;
+      const n = Number(count) || 0;
+      if (n > 0) {
+        badge.textContent = n > 99 ? "99+" : String(n);
+        badge.classList.remove("hidden");
+      } else {
+        badge.classList.add("hidden");
+      }
+    };
+
+    window.updateNavBroadcastBadge = function (count) {
+      const badge = document.getElementById("nav-broadcast-badge");
+      if (!badge) return;
+      const n = Number(count) || 0;
+      if (n > 0) {
+        badge.textContent = n > 99 ? "99+" : String(n);
+        badge.classList.remove("hidden");
+      } else {
+        badge.classList.add("hidden");
+      }
+    };
+
+    fetch("/api/stats", { credentials: "same-origin" })
+      .then((r) => r.json())
+      .then((data) => {
+        window.updateNavManualOrdersBadge(data.pending_manual_orders ?? 0);
+        window.updateNavBroadcastBadge(data.active_timed_announcements_count ?? 0);
+      })
+      .catch(() => {});
   </script>
   {% block scripts %}{% endblock %}
 </body>

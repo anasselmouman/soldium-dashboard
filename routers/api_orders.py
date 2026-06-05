@@ -166,8 +166,6 @@ async def patch_order_status(order_id: int, body: UpdateOrderStatusRequest):
 
             int(order["user_id"]),
 
-            order_id=order_id,
-
             provider_order_id=order.get("provider_order_id"),
 
             new_status=order["status"],

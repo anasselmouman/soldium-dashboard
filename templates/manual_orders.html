@@ -1,0 +1,767 @@
+{% extends "base.html" %}
+
+{% block title %}{{ page_title }} — التنفيذ اليدوي{% endblock %}
+
+{% block header_actions %}
+<button
+  id="refresh-btn"
+  type="button"
+  class="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-surface-800 px-3 py-2 text-sm font-medium text-slate-200 hover:bg-surface-700 hover:border-slate-600 transition disabled:opacity-50"
+>
+  <svg id="refresh-icon" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+    <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v6h6M20 20v-6h-6M5 19a9 9 0 0114-7.5M19 5a9 9 0 00-14 7.5" />
+  </svg>
+  تحديث
+</button>
+{% endblock %}
+
+{% block content %}
+<section class="space-y-6">
+  <div class="flex flex-wrap gap-2 border-b border-slate-800 pb-1">
+    <button type="button" id="tab-pending" class="manual-tab manual-tab--active px-4 py-2 text-sm font-medium rounded-t-lg transition">الطابور المعلّق</button>
+    <button type="button" id="tab-history" class="manual-tab px-4 py-2 text-sm font-medium rounded-t-lg transition text-slate-400 hover:text-slate-200">السجل</button>
+  </div>
+
+  <div id="panel-pending" class="space-y-6">
+    <div class="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
+      <div class="flex flex-wrap gap-3">
+        <div class="rounded-xl border border-slate-800 bg-surface-900 px-4 py-3 min-w-[120px]">
+          <p class="text-xs uppercase tracking-wider text-slate-500">معلّق</p>
+          <p id="pending-count" class="mt-1 text-2xl font-semibold text-accent-400">—</p>
+        </div>
+        <div class="rounded-xl border border-slate-800 bg-surface-900 px-4 py-3 min-w-[140px]">
+          <p class="text-xs uppercase tracking-wider text-slate-500">مبالغ محجوزة</p>
+          <p id="pending-total-amount" class="mt-1 text-lg font-semibold text-emerald-300">—</p>
+        </div>
+        <div class="rounded-xl border border-slate-800 bg-surface-900 px-4 py-3 min-w-[140px]">
+          <p class="text-xs uppercase tracking-wider text-slate-500">أقدم انتظار</p>
+          <p id="pending-oldest-wait" class="mt-1 text-lg font-semibold text-amber-300">—</p>
+        </div>
+      </div>
+    </div>
+
+    <div id="alert" class="hidden rounded-lg border px-4 py-3 text-sm" role="alert"></div>
+
+    <div class="rounded-xl border border-slate-800 bg-surface-900 overflow-hidden shadow-xl shadow-black/20">
+      <div id="loading" class="flex items-center justify-center gap-3 py-16 text-slate-400">
+        <svg class="h-5 w-5 animate-spin" viewBox="0 0 24 24" fill="none">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+        </svg>
+        جاري تحميل الطلبات اليدوية…
+      </div>
+
+      <div id="empty-state" class="hidden py-16 text-center">
+        <p class="text-slate-300 font-medium">لا توجد طلبات بانتظار التنفيذ اليدوي</p>
+        <p class="mt-1 text-sm text-slate-500">القائمة فارغة حاليًا.</p>
+      </div>
+
+      <div id="table-wrap" class="hidden overflow-x-auto">
+        <table class="min-w-full text-sm text-start">
+          <thead class="bg-surface-800/80 text-xs uppercase tracking-wider text-slate-400">
+            <tr>
+              <th class="px-4 py-3 font-medium w-8"></th>
+              <th class="px-4 py-3 font-medium">الطلب</th>
+              <th class="px-4 py-3 font-medium">العميل</th>
+              <th class="px-4 py-3 font-medium">الخدمة</th>
+              <th class="px-4 py-3 font-medium">الرابط / البيانات</th>
+              <th class="px-4 py-3 font-medium">الكمية</th>
+              <th class="px-4 py-3 font-medium">المبلغ</th>
+              <th class="px-4 py-3 font-medium">الانتظار</th>
+              <th class="px-4 py-3 font-medium text-end">الإجراءات</th>
+            </tr>
+          </thead>
+          <tbody id="pending-body" class="divide-y divide-slate-800/80"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div id="panel-history" class="hidden space-y-4">
+    <div class="flex flex-col lg:flex-row gap-3 lg:items-end">
+      <div class="flex-1">
+        <label for="history-search" class="block text-xs font-medium text-slate-400 mb-1">بحث</label>
+        <input id="history-search" type="search" placeholder="رقم الطلب أو معرف المستخدم" class="w-full rounded-lg border border-slate-600 bg-surface-800 px-3 py-2 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-accent-500" />
+      </div>
+      <div>
+        <label for="history-status" class="block text-xs font-medium text-slate-400 mb-1">الحالة</label>
+        <select id="history-status" class="rounded-lg border border-slate-600 bg-surface-800 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-accent-500">
+          <option value="">الكل</option>
+          <option value="completed">مكتمل</option>
+          <option value="canceled">ملغي</option>
+          <option value="failed">فشل</option>
+        </select>
+      </div>
+      <div>
+        <label for="history-from" class="block text-xs font-medium text-slate-400 mb-1">من</label>
+        <input id="history-from" type="date" class="rounded-lg border border-slate-600 bg-surface-800 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-accent-500" />
+      </div>
+      <div>
+        <label for="history-to" class="block text-xs font-medium text-slate-400 mb-1">إلى</label>
+        <input id="history-to" type="date" class="rounded-lg border border-slate-600 bg-surface-800 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-accent-500" />
+      </div>
+      <button id="history-search-btn" type="button" class="rounded-lg bg-accent-600 hover:bg-accent-500 px-4 py-2 text-sm font-medium text-white">بحث</button>
+    </div>
+
+    <div id="history-alert" class="hidden rounded-lg border px-4 py-3 text-sm" role="alert"></div>
+
+    <div class="rounded-xl border border-slate-800 bg-surface-900 overflow-hidden">
+      <div id="history-loading" class="hidden flex items-center justify-center gap-3 py-12 text-slate-400">
+        <svg class="h-5 w-5 animate-spin" viewBox="0 0 24 24" fill="none">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+        </svg>
+        جاري تحميل السجل…
+      </div>
+      <div id="history-empty" class="hidden py-12 text-center text-slate-500">لا توجد سجلات مطابقة.</div>
+      <div id="history-table-wrap" class="hidden overflow-x-auto">
+        <table class="min-w-full text-sm text-start">
+          <thead class="bg-surface-800/80 text-xs uppercase tracking-wider text-slate-400">
+            <tr>
+              <th class="px-4 py-3 font-medium">الطلب</th>
+              <th class="px-4 py-3 font-medium">العميل</th>
+              <th class="px-4 py-3 font-medium">الخدمة</th>
+              <th class="px-4 py-3 font-medium">المبلغ</th>
+              <th class="px-4 py-3 font-medium">الحالة</th>
+              <th class="px-4 py-3 font-medium">المسترد</th>
+              <th class="px-4 py-3 font-medium">التاريخ</th>
+              <th class="px-4 py-3 font-medium">ملاحظة</th>
+            </tr>
+          </thead>
+          <tbody id="history-body" class="divide-y divide-slate-800/80"></tbody>
+        </table>
+      </div>
+      <div id="history-pagination" class="hidden flex items-center justify-between gap-3 px-4 py-3 border-t border-slate-800 text-sm text-slate-400">
+        <button id="history-prev" type="button" class="rounded-lg border border-slate-600 px-3 py-1.5 hover:bg-surface-800 disabled:opacity-40">السابق</button>
+        <span id="history-page-label">—</span>
+        <button id="history-next" type="button" class="rounded-lg border border-slate-600 px-3 py-1.5 hover:bg-surface-800 disabled:opacity-40">التالي</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- تأكيد الإتمام -->
+<div id="complete-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4" aria-hidden="true">
+  <div id="complete-backdrop" class="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
+  <div class="relative w-full max-w-md rounded-xl border border-slate-700 bg-surface-900 shadow-2xl p-6 space-y-4">
+    <h2 class="text-lg font-semibold text-white">تأكيد التنفيذ</h2>
+    <p id="complete-modal-text" class="text-sm text-slate-400"></p>
+    <div class="flex gap-2 justify-end pt-2">
+      <button id="complete-modal-cancel" type="button" class="rounded-lg border border-slate-600 px-4 py-2 text-sm text-slate-300 hover:bg-surface-800">إلغاء</button>
+      <button id="complete-modal-confirm" type="button" class="rounded-lg bg-emerald-600 hover:bg-emerald-500 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">تم التنفيذ</button>
+    </div>
+  </div>
+</div>
+
+<!-- إرسال إشعار للعميل -->
+<div id="notify-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4" aria-hidden="true">
+  <div id="notify-backdrop" class="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
+  <div class="relative w-full max-w-lg rounded-xl border border-slate-700 bg-surface-900 shadow-2xl p-6 space-y-4">
+    <h2 class="text-lg font-semibold text-white">إرسال إشعار للعميل</h2>
+    <p class="text-sm text-slate-400">
+      الطلب <span id="notify-modal-order" class="font-mono text-slate-200"></span> —
+      المستلم: <span id="notify-modal-user" class="text-slate-200"></span>
+    </p>
+    <div>
+      <label for="notify-message" class="block text-xs font-medium text-slate-400 mb-1">نص الرسالة</label>
+      <textarea id="notify-message" rows="5" maxlength="2000" placeholder="مثال: نحتاج رابطاً محدثاً لإتمام طلبك." class="w-full rounded-lg border border-slate-600 bg-surface-800 px-3 py-2 text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-accent-500 resize-y"></textarea>
+      <p class="mt-1 text-[10px] text-slate-500">تُرسل الرسالة عبر تيليغرام لصاحب الطلب فقط، مع ذكر رقم الطلب تلقائياً.</p>
+    </div>
+    <div class="flex gap-2 justify-end pt-2">
+      <button id="notify-modal-cancel" type="button" class="rounded-lg border border-slate-600 px-4 py-2 text-sm text-slate-300 hover:bg-surface-800">إلغاء</button>
+      <button id="notify-modal-confirm" type="button" class="rounded-lg bg-accent-600 hover:bg-accent-500 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">إرسال الإشعار</button>
+    </div>
+  </div>
+</div>
+
+<!-- رفض واسترداد -->
+<div id="reject-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4" aria-hidden="true">
+  <div id="reject-backdrop" class="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
+  <div class="relative w-full max-w-md rounded-xl border border-slate-700 bg-surface-900 shadow-2xl p-6 space-y-4">
+    <h2 class="text-lg font-semibold text-white">رفض واسترداد الرصيد</h2>
+    <p class="text-sm text-slate-400">
+      الطلب <span id="reject-modal-label" class="font-mono text-slate-200"></span> —
+      سيُعاد المبلغ تلقائيًا إلى رصيد المستخدم.
+    </p>
+    <div>
+      <label for="reject-reason" class="block text-xs font-medium text-slate-400 mb-1">سبب الرفض (يُرسل للمستخدم)</label>
+      <textarea id="reject-reason" rows="3" maxlength="500" placeholder="مثال: الرابط غير صالح" class="w-full rounded-lg border border-slate-600 bg-surface-800 px-3 py-2 text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-red-500 resize-y"></textarea>
+    </div>
+    <div class="flex gap-2 justify-end pt-2">
+      <button id="reject-modal-cancel" type="button" class="rounded-lg border border-slate-600 px-4 py-2 text-sm text-slate-300 hover:bg-surface-800">إلغاء</button>
+      <button id="reject-modal-confirm" type="button" class="rounded-lg bg-red-600 hover:bg-red-500 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">رفض وإرجاع الرصيد</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block head %}
+<style>
+  .manual-tab--active {
+    color: #7dd3fc;
+    background: rgba(14, 165, 233, 0.1);
+    border-bottom: 2px solid #0ea5e9;
+  }
+  .wait-green { color: #6ee7b7; }
+  .wait-amber { color: #fcd34d; }
+  .wait-red { color: #fca5a5; }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const PENDING_API = "/api/manual-orders/pending";
+  const HISTORY_API = "/api/manual-orders/history";
+  const POLL_MS = 45000;
+
+  const STATUS_LABELS = {
+    completed: "مكتمل",
+    canceled: "ملغي",
+    failed: "فشل التنفيذ",
+    "pending admin": "بانتظار تنفيذ الإدارة",
+  };
+
+  let pendingCompleteId = null;
+  let pendingRejectId = null;
+  let pendingNotifyId = null;
+  let pollTimer = null;
+  let historyPage = 1;
+  let expandedOrderId = null;
+
+  const els = {
+    alert: document.getElementById("alert"),
+    loading: document.getElementById("loading"),
+    empty: document.getElementById("empty-state"),
+    tableWrap: document.getElementById("table-wrap"),
+    pendingBody: document.getElementById("pending-body"),
+    pendingCount: document.getElementById("pending-count"),
+    pendingTotalAmount: document.getElementById("pending-total-amount"),
+    pendingOldestWait: document.getElementById("pending-oldest-wait"),
+    refreshBtn: document.getElementById("refresh-btn"),
+    refreshIcon: document.getElementById("refresh-icon"),
+    tabPending: document.getElementById("tab-pending"),
+    tabHistory: document.getElementById("tab-history"),
+    panelPending: document.getElementById("panel-pending"),
+    panelHistory: document.getElementById("panel-history"),
+    historySearch: document.getElementById("history-search"),
+    historyStatus: document.getElementById("history-status"),
+    historyFrom: document.getElementById("history-from"),
+    historyTo: document.getElementById("history-to"),
+    historySearchBtn: document.getElementById("history-search-btn"),
+    historyAlert: document.getElementById("history-alert"),
+    historyLoading: document.getElementById("history-loading"),
+    historyEmpty: document.getElementById("history-empty"),
+    historyTableWrap: document.getElementById("history-table-wrap"),
+    historyBody: document.getElementById("history-body"),
+    historyPagination: document.getElementById("history-pagination"),
+    historyPrev: document.getElementById("history-prev"),
+    historyNext: document.getElementById("history-next"),
+    historyPageLabel: document.getElementById("history-page-label"),
+  };
+
+  const completeModal = {
+    root: document.getElementById("complete-modal"),
+    backdrop: document.getElementById("complete-backdrop"),
+    text: document.getElementById("complete-modal-text"),
+    cancel: document.getElementById("complete-modal-cancel"),
+    confirm: document.getElementById("complete-modal-confirm"),
+  };
+
+  const rejectModal = {
+    root: document.getElementById("reject-modal"),
+    backdrop: document.getElementById("reject-backdrop"),
+    label: document.getElementById("reject-modal-label"),
+    reason: document.getElementById("reject-reason"),
+    cancel: document.getElementById("reject-modal-cancel"),
+    confirm: document.getElementById("reject-modal-confirm"),
+  };
+
+  const notifyModal = {
+    root: document.getElementById("notify-modal"),
+    backdrop: document.getElementById("notify-backdrop"),
+    order: document.getElementById("notify-modal-order"),
+    user: document.getElementById("notify-modal-user"),
+    message: document.getElementById("notify-message"),
+    cancel: document.getElementById("notify-modal-cancel"),
+    confirm: document.getElementById("notify-modal-confirm"),
+  };
+
+  function showAlert(el, message, type = "error") {
+    el.textContent = message;
+    el.className =
+      "rounded-lg border px-4 py-3 text-sm " +
+      (type === "error"
+        ? "border-red-900/60 bg-red-950/40 text-red-200"
+        : "border-emerald-900/60 bg-emerald-950/40 text-emerald-200");
+    el.classList.remove("hidden");
+  }
+
+  function hideAlert(el) {
+    el.classList.add("hidden");
+  }
+
+  function escapeHtml(text) {
+    const div = document.createElement("div");
+    div.textContent = text ?? "";
+    return div.innerHTML;
+  }
+
+  function formatAmount(value) {
+    const n = Number(value);
+    if (Number.isNaN(n)) return value;
+    return n.toLocaleString("ar-MA", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " درهم";
+  }
+
+  function formatDate(iso) {
+    if (!iso) return "—";
+    try {
+      const d = new Date(iso.replace(" ", "T"));
+      if (Number.isNaN(d.getTime())) return iso;
+      return d.toLocaleString("ar-MA", {
+        year: "numeric", month: "short", day: "numeric",
+        hour: "2-digit", minute: "2-digit",
+      });
+    } catch {
+      return iso;
+    }
+  }
+
+  function normalizeStatusKey(status) {
+    const s = String(status || "").trim().toLowerCase().replace(/_/g, " ");
+    return s === "cancelled" ? "canceled" : s;
+  }
+
+  function statusLabel(status) {
+    return STATUS_LABELS[normalizeStatusKey(status)] || status || "—";
+  }
+
+  function orderDisplayRef(order) {
+    const ref = String(order?.provider_order_id || "").trim();
+    return ref || "—";
+  }
+
+  function waitClass(seconds) {
+    if (seconds < 7200) return "wait-green";
+    if (seconds < 21600) return "wait-amber";
+    return "wait-red";
+  }
+
+  function formatOldestWait(seconds) {
+    if (!seconds) return "—";
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    if (h) return `${h}س ${m}د`;
+    return `${m} د`;
+  }
+
+  function userProfileHref(userId) {
+    return `/dashboard/users/${Number(userId)}`;
+  }
+
+  function userProfileLink(userId, innerHtml) {
+    return `<a href="${userProfileHref(userId)}" class="text-blue-400 hover:text-blue-300 underline font-bold" target="_blank" rel="noopener">${innerHtml}</a>`;
+  }
+
+  function parseErrorDetail(body) {
+    const detail = body?.detail;
+    if (!detail) return "فشل تنفيذ الطلب.";
+    if (typeof detail === "string") return detail;
+    if (detail.message) return detail.message;
+    if (Array.isArray(detail)) {
+      const msgs = detail.map((item) => item.msg).filter(Boolean);
+      if (msgs.length) return msgs.join(" ");
+    }
+    return "حدث خطأ غير متوقع.";
+  }
+
+  async function postJson(url, payload) {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify(payload ?? {}),
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(parseErrorDetail(body));
+    return body;
+  }
+
+  function buildCopyText(order) {
+    return [
+      `طلب #${orderDisplayRef(order)}`,
+      `العميل: ${order.display_name} (${order.user_id})`,
+      `الخدمة: ${order.service_name}`,
+      `معرف الخدمة: ${order.service_id}`,
+      `الرابط: ${order.link}`,
+      `الكمية: ${order.quantity}`,
+      `المبلغ: ${order.amount} DH`,
+      `تاريخ: ${order.created_at}`,
+    ].join("\n");
+  }
+
+  function renderDetailsRow(order) {
+    const isOpen = expandedOrderId === order.id;
+    return `
+      <tr class="bg-surface-800/30" data-details-for="${order.id}" ${isOpen ? "" : 'style="display:none"'}>
+        <td colspan="9" class="px-4 py-3">
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+            <div><span class="text-slate-500">رصيد العميل:</span> <span class="text-slate-200">${formatAmount(order.user_balance)}</span></div>
+            <div><span class="text-slate-500">إجمالي الإنفاق:</span> <span class="text-slate-200">${formatAmount(order.user_total_spent)}</span></div>
+            <div><span class="text-slate-500">عدد الطلبات:</span> <span class="text-slate-200">${order.user_orders_count}</span></div>
+            <div><span class="text-slate-500">معرف الخدمة:</span> <span class="font-mono text-slate-200">${escapeHtml(order.service_id)}</span></div>
+            <div><span class="text-slate-500">وضع التنفيذ:</span> <span class="text-slate-200">${escapeHtml(order.fulfillment_mode)}</span></div>
+            <div><span class="text-slate-500">التاريخ:</span> <span class="text-slate-200">${formatDate(order.created_at)}</span></div>
+          </div>
+          <div class="mt-3 flex flex-wrap gap-2">
+            <button type="button" data-copy-order="${order.id}" class="rounded-lg border border-slate-600 px-3 py-1.5 text-xs text-slate-300 hover:bg-surface-800">نسخ كل البيانات</button>
+            <button type="button" data-action="notify" data-order-id="${order.id}" class="rounded-lg border border-accent-500/40 bg-accent-500/10 px-3 py-1.5 text-xs text-accent-300 hover:bg-accent-500/20">إرسال إشعار للعميل</button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }
+
+  function renderPendingRow(order) {
+    const uid = order.user_id;
+    const userLabel = order.telegram_name
+      ? `${userProfileLink(uid, escapeHtml(order.telegram_name))} <span class="text-slate-500">(${userProfileLink(uid, String(uid))})</span>`
+      : userProfileLink(uid, `<span class="font-mono">${uid}</span>`);
+    const linkShort = order.link.length > 40 ? order.link.slice(0, 40) + "…" : order.link;
+    const waitCls = waitClass(order.waiting_seconds || 0);
+
+    return `
+      <tr class="hover:bg-surface-800/40 transition align-top" data-order-id="${order.id}">
+        <td class="px-2 py-3">
+          <button type="button" data-toggle-details="${order.id}" class="text-slate-400 hover:text-white text-lg leading-none" aria-label="تفاصيل">›</button>
+        </td>
+        <td class="px-4 py-3 font-mono text-slate-300">#${escapeHtml(orderDisplayRef(order))}</td>
+        <td class="px-4 py-3">${userLabel}</td>
+        <td class="px-4 py-3 text-slate-200">${escapeHtml(order.service_name)}</td>
+        <td class="px-4 py-3 max-w-[200px]">
+          <div class="flex items-center gap-1 flex-wrap">
+            <code class="text-xs text-slate-300 break-all" title="${escapeHtml(order.link)}">${escapeHtml(linkShort)}</code>
+            <button type="button" data-copy-link="${escapeHtml(order.link)}" class="text-[10px] text-accent-400 hover:underline">نسخ</button>
+            ${order.link.startsWith("http") ? `<a href="${escapeHtml(order.link)}" target="_blank" rel="noopener" class="text-[10px] text-accent-400 hover:underline">فتح</a>` : ""}
+          </div>
+        </td>
+        <td class="px-4 py-3 font-mono text-slate-300">${order.quantity}</td>
+        <td class="px-4 py-3 font-semibold text-emerald-300 whitespace-nowrap">${formatAmount(order.amount)}</td>
+        <td class="px-4 py-3 whitespace-nowrap"><span class="${waitCls} font-medium">${escapeHtml(order.waiting_label || "—")}</span></td>
+        <td class="px-4 py-3 text-end whitespace-nowrap align-top">
+          <button type="button" data-action="notify" data-order-id="${order.id}" class="inline-flex rounded-lg border border-accent-500/40 bg-accent-500/10 hover:bg-accent-500/20 px-3 py-1.5 text-xs font-semibold text-accent-300 mb-1 disabled:opacity-50">إرسال إشعار</button>
+          <button type="button" data-action="complete" data-order-id="${order.id}" class="inline-flex rounded-lg bg-emerald-600/90 hover:bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-white mb-1 disabled:opacity-50">تم التنفيذ</button>
+          <button type="button" data-action="reject" data-order-id="${order.id}" class="inline-flex rounded-lg bg-red-600/90 hover:bg-red-500 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50">رفض واسترداد</button>
+        </td>
+      </tr>
+      ${renderDetailsRow(order)}
+    `;
+  }
+
+  function statusBadge(status) {
+    const key = normalizeStatusKey(status);
+    let cls = "bg-slate-500/10 text-slate-300 border-slate-500/30";
+    if (key === "completed") cls = "bg-emerald-500/10 text-emerald-300 border-emerald-500/30";
+    if (key === "canceled" || key === "failed") cls = "bg-red-500/10 text-red-300 border-red-500/30";
+    return `<span class="inline-flex rounded-md border px-2 py-0.5 text-xs font-medium ${cls}">${escapeHtml(statusLabel(status))}</span>`;
+  }
+
+  function renderHistoryRow(order) {
+    const uid = order.user_id;
+    const userLabel = order.telegram_name
+      ? escapeHtml(order.telegram_name)
+      : String(uid);
+    return `
+      <tr class="hover:bg-surface-800/40 transition">
+        <td class="px-4 py-3 font-mono text-slate-300">#${escapeHtml(orderDisplayRef(order))}</td>
+        <td class="px-4 py-3">${userProfileLink(uid, userLabel)}</td>
+        <td class="px-4 py-3 text-slate-200">${escapeHtml(order.service_name)}</td>
+        <td class="px-4 py-3 text-emerald-300">${formatAmount(order.amount)}</td>
+        <td class="px-4 py-3">${statusBadge(order.status)}</td>
+        <td class="px-4 py-3 text-slate-400">${order.refunded_amount > 0 ? formatAmount(order.refunded_amount) : "—"}</td>
+        <td class="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">${formatDate(order.created_at)}</td>
+        <td class="px-4 py-3 text-xs text-slate-400 max-w-[180px] truncate" title="${escapeHtml(order.status_note || "")}">${escapeHtml(order.status_note || "—")}</td>
+      </tr>
+    `;
+  }
+
+  let pendingOrdersCache = [];
+
+  function setPendingLoading(isLoading) {
+    els.refreshBtn.disabled = isLoading;
+    els.refreshIcon.classList.toggle("animate-spin", isLoading);
+    if (isLoading) els.loading.classList.remove("hidden");
+    else els.loading.classList.add("hidden");
+  }
+
+  function schedulePoll(count) {
+    if (pollTimer) clearInterval(pollTimer);
+    if (count > 0) {
+      pollTimer = setInterval(() => loadPending(false), POLL_MS);
+    }
+  }
+
+  async function loadPending(showSpinner = true) {
+    hideAlert(els.alert);
+    if (showSpinner) setPendingLoading(true);
+    els.empty.classList.add("hidden");
+    els.tableWrap.classList.add("hidden");
+
+    try {
+      const data = await fetch(PENDING_API, { credentials: "same-origin" }).then((r) => r.json());
+      const items = data.orders || [];
+      pendingOrdersCache = items;
+
+      els.pendingCount.textContent = String(data.count ?? items.length);
+      els.pendingTotalAmount.textContent = formatAmount(data.total_amount_dh ?? 0);
+      els.pendingOldestWait.textContent = formatOldestWait(data.oldest_waiting_seconds ?? 0);
+
+      if (typeof window.updateNavManualOrdersBadge === "function") {
+        window.updateNavManualOrdersBadge(data.count ?? 0);
+      }
+
+      if (!items.length) {
+        els.empty.classList.remove("hidden");
+        els.pendingBody.innerHTML = "";
+        schedulePoll(0);
+        return;
+      }
+
+      els.tableWrap.classList.remove("hidden");
+      els.pendingBody.innerHTML = items.map(renderPendingRow).join("");
+      schedulePoll(items.length);
+    } catch (err) {
+      showAlert(els.alert, err.message || "تعذّر تحميل الطلبات.");
+    } finally {
+      if (showSpinner) setPendingLoading(false);
+    }
+  }
+
+  async function loadHistory(page = 1) {
+    historyPage = page;
+    hideAlert(els.historyAlert);
+    els.historyLoading.classList.remove("hidden");
+    els.historyEmpty.classList.add("hidden");
+    els.historyTableWrap.classList.add("hidden");
+    els.historyPagination.classList.add("hidden");
+
+    const params = new URLSearchParams({ page: String(page), limit: "50" });
+    const search = els.historySearch.value.trim();
+    const status = els.historyStatus.value;
+    const from = els.historyFrom.value;
+    const to = els.historyTo.value;
+    if (search) params.set("search", search);
+    if (status) params.set("status", status);
+    if (from) params.set("from_date", from);
+    if (to) params.set("to_date", to);
+
+    try {
+      const data = await fetch(`${HISTORY_API}?${params}`, { credentials: "same-origin" }).then((r) => r.json());
+      const items = data.orders || [];
+
+      if (!items.length) {
+        els.historyEmpty.classList.remove("hidden");
+        els.historyBody.innerHTML = "";
+        return;
+      }
+
+      els.historyTableWrap.classList.remove("hidden");
+      els.historyBody.innerHTML = items.map(renderHistoryRow).join("");
+
+      const totalPages = data.total_pages || 1;
+      els.historyPagination.classList.remove("hidden");
+      els.historyPageLabel.textContent = `صفحة ${data.page} من ${totalPages} (${data.total} سجل)`;
+      els.historyPrev.disabled = data.page <= 1;
+      els.historyNext.disabled = data.page >= totalPages;
+    } catch (err) {
+      showAlert(els.historyAlert, err.message || "تعذّر تحميل السجل.");
+    } finally {
+      els.historyLoading.classList.add("hidden");
+    }
+  }
+
+  function openCompleteModal(orderId) {
+    const order = pendingOrdersCache.find((o) => o.id === orderId);
+    pendingCompleteId = orderId;
+    const label = order
+      ? `#${orderDisplayRef(order)} — ${order.display_name} — ${formatAmount(order.amount)}`
+      : "—";
+    completeModal.text.textContent = `هل أكّدت تنفيذ الخدمة يدوياً للطلب ${label}؟`;
+    completeModal.root.classList.remove("hidden");
+  }
+
+  function closeCompleteModal() {
+    pendingCompleteId = null;
+    completeModal.root.classList.add("hidden");
+  }
+
+  function openRejectModal(orderId) {
+    const order = pendingOrdersCache.find((o) => o.id === orderId);
+    pendingRejectId = orderId;
+    rejectModal.label.textContent = order ? `#${orderDisplayRef(order)}` : "—";
+    rejectModal.reason.value = "";
+    rejectModal.root.classList.remove("hidden");
+  }
+
+  function closeRejectModal() {
+    pendingRejectId = null;
+    rejectModal.root.classList.add("hidden");
+  }
+
+  function openNotifyModal(orderId) {
+    const order = pendingOrdersCache.find((o) => o.id === orderId);
+    pendingNotifyId = orderId;
+    notifyModal.order.textContent = order ? `#${orderDisplayRef(order)}` : "—";
+    notifyModal.user.textContent = order
+      ? `${order.display_name} (${order.user_id})`
+      : String(orderId);
+    notifyModal.message.value = "";
+    notifyModal.root.classList.remove("hidden");
+    notifyModal.message.focus();
+  }
+
+  function closeNotifyModal() {
+    pendingNotifyId = null;
+    notifyModal.root.classList.add("hidden");
+  }
+
+  async function handleComplete() {
+    if (!pendingCompleteId) return;
+    const orderId = pendingCompleteId;
+    const order = pendingOrdersCache.find((o) => o.id === orderId);
+    completeModal.confirm.disabled = true;
+    try {
+      await postJson(`/api/manual-orders/${orderId}/complete`, {});
+      closeCompleteModal();
+      showAlert(els.alert, `تم تنفيذ الطلب #${orderDisplayRef(order)} بنجاح.`, "success");
+      await loadPending(false);
+    } catch (err) {
+      showAlert(els.alert, err.message);
+    } finally {
+      completeModal.confirm.disabled = false;
+    }
+  }
+
+  async function handleReject() {
+    if (!pendingRejectId) return;
+    const orderId = pendingRejectId;
+    const order = pendingOrdersCache.find((o) => o.id === orderId);
+    const reason = rejectModal.reason.value.trim();
+    rejectModal.confirm.disabled = true;
+    try {
+      await postJson(`/api/manual-orders/${orderId}/reject`, { reason: reason || null });
+      closeRejectModal();
+      showAlert(els.alert, `تم رفض الطلب #${orderDisplayRef(order)} وإرجاع الرصيد.`, "success");
+      await loadPending(false);
+    } catch (err) {
+      showAlert(els.alert, err.message);
+    } finally {
+      rejectModal.confirm.disabled = false;
+    }
+  }
+
+  async function handleNotify() {
+    if (!pendingNotifyId) return;
+    const orderId = pendingNotifyId;
+    const order = pendingOrdersCache.find((o) => o.id === orderId);
+    const message = notifyModal.message.value.trim();
+    if (!message) {
+      showAlert(els.alert, "اكتب نص الرسالة قبل الإرسال.");
+      return;
+    }
+    notifyModal.confirm.disabled = true;
+    try {
+      const result = await postJson(`/api/manual-orders/${orderId}/notify`, { message });
+      closeNotifyModal();
+      if (result.notification_sent) {
+        showAlert(els.alert, `تم إرسال الإشعار للعميل بخصوص الطلب #${orderDisplayRef(order)}.`, "success");
+      } else {
+        showAlert(els.alert, "تعذّر إرسال الإشعار عبر تيليغرام. تحقق من BOT_TOKEN أو أن العميل بدأ محادثة مع البوت.");
+      }
+    } catch (err) {
+      showAlert(els.alert, err.message);
+    } finally {
+      notifyModal.confirm.disabled = false;
+    }
+  }
+
+  function switchTab(tab) {
+    const isPending = tab === "pending";
+    els.tabPending.classList.toggle("manual-tab--active", isPending);
+    els.tabPending.classList.toggle("text-slate-400", !isPending);
+    els.tabHistory.classList.toggle("manual-tab--active", !isPending);
+    els.tabHistory.classList.toggle("text-slate-400", isPending);
+    els.panelPending.classList.toggle("hidden", !isPending);
+    els.panelHistory.classList.toggle("hidden", isPending);
+    if (!isPending) loadHistory(1);
+  }
+
+  els.pendingBody.addEventListener("click", async (e) => {
+    const btn = e.target.closest("button");
+    if (!btn) return;
+
+    const toggleId = btn.dataset.toggleDetails;
+    if (toggleId) {
+      const id = Number(toggleId);
+      expandedOrderId = expandedOrderId === id ? null : id;
+      const details = els.pendingBody.querySelector(`tr[data-details-for="${id}"]`);
+      if (details) details.style.display = expandedOrderId === id ? "" : "none";
+      return;
+    }
+
+    const copyLink = btn.dataset.copyLink;
+    if (copyLink) {
+      try {
+        await navigator.clipboard.writeText(copyLink);
+        showAlert(els.alert, "تم نسخ الرابط.", "success");
+      } catch {
+        showAlert(els.alert, "تعذّر النسخ.");
+      }
+      return;
+    }
+
+    const copyOrderId = btn.dataset.copyOrder;
+    if (copyOrderId) {
+      const order = pendingOrdersCache.find((o) => o.id === Number(copyOrderId));
+      if (order) {
+        try {
+          await navigator.clipboard.writeText(buildCopyText(order));
+          showAlert(els.alert, "تم نسخ بيانات الطلب.", "success");
+        } catch {
+          showAlert(els.alert, "تعذّر النسخ.");
+        }
+      }
+      return;
+    }
+
+    const action = btn.dataset.action;
+    const orderId = Number(btn.dataset.orderId);
+    if (!action || !orderId) return;
+
+    if (action === "complete") openCompleteModal(orderId);
+    if (action === "reject") openRejectModal(orderId);
+    if (action === "notify") openNotifyModal(orderId);
+  });
+
+  els.tabPending.addEventListener("click", () => switchTab("pending"));
+  els.tabHistory.addEventListener("click", () => switchTab("history"));
+  els.refreshBtn.addEventListener("click", () => {
+    if (els.panelHistory.classList.contains("hidden")) loadPending();
+    else loadHistory(historyPage);
+  });
+  els.historySearchBtn.addEventListener("click", () => loadHistory(1));
+  els.historyPrev.addEventListener("click", () => { if (historyPage > 1) loadHistory(historyPage - 1); });
+  els.historyNext.addEventListener("click", () => loadHistory(historyPage + 1));
+
+  completeModal.cancel.addEventListener("click", closeCompleteModal);
+  completeModal.backdrop.addEventListener("click", closeCompleteModal);
+  completeModal.confirm.addEventListener("click", handleComplete);
+  rejectModal.cancel.addEventListener("click", closeRejectModal);
+  rejectModal.backdrop.addEventListener("click", closeRejectModal);
+  rejectModal.confirm.addEventListener("click", handleReject);
+  notifyModal.cancel.addEventListener("click", closeNotifyModal);
+  notifyModal.backdrop.addEventListener("click", closeNotifyModal);
+  notifyModal.confirm.addEventListener("click", handleNotify);
+
+  loadPending();
+</script>
+{% endblock %}

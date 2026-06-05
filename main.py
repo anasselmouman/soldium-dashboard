@@ -15,12 +15,13 @@ from fastapi.staticfiles import StaticFiles
 
 from admin_log import setup_admin_logging
 from database_connector import DB_PATH, count_users
-from db_schema import ensure_smm_services_table
+from db_schema import ensure_smm_services_table, ensure_timed_announcements_tables
 from middleware.auth import AdminAuthMiddleware
 from routers import (
     api_analytics,
     api_broadcast,
     api_deposits,
+    api_manual_orders,
     api_system,
     api_services,
     api_orders,
@@ -46,6 +47,7 @@ async def lifespan(_app: FastAPI):
     _db_log.info("Dashboard database path: %s", DB_PATH)
     try:
         await ensure_smm_services_table()
+        await ensure_timed_announcements_tables()
     except Exception as exc:
         _db_log.warning("smm_services schema init failed: %s", exc)
     yield
@@ -76,6 +78,7 @@ app.include_router(api_deposits.router)
 app.include_router(api_users.router)
 app.include_router(api_orders.router)
 app.include_router(api_withdrawals.router)
+app.include_router(api_manual_orders.router)
 app.include_router(api_broadcast.router)
 app.include_router(api_system.router)
 

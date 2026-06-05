@@ -70,12 +70,12 @@ LOAD_ORDERS_FAILED = "تعذّر تحميل قائمة الطلبات."
 UPDATE_ORDER_STATUS_FAILED = "تعذّر تحديث حالة الطلب."
 
 
-def order_not_found(order_id: int) -> str:
-    return f"الطلب #{order_id} غير موجود."
+def order_not_found(_order_id: int = 0) -> str:
+    return "الطلب غير موجود."
 
 
-def order_status_unchanged(order_id: int) -> str:
-    return f"لا يمكن تعديل حالة الطلب #{order_id} (حالة نهائية أو غير مسموح بها)."
+def order_status_unchanged(_order_id: int = 0) -> str:
+    return "لا يمكن تعديل حالة هذا الطلب (حالة نهائية أو غير مسموح بها)."
 
 
 def order_status_update_failed() -> str:
@@ -91,6 +91,14 @@ LOAD_STATS_FAILED = "تعذّر تحميل الإحصائيات."
 LOAD_ANALYTICS_FAILED = "تعذّر تحميل مؤشرات التحليل المالي."
 
 BROADCAST_FAILED = "تعذّر إرسال البث الجماعي."
+
+PRIVATE_MESSAGE_FAILED = "تعذّر إرسال الرسالة الخاصة."
+
+NO_VALID_RECIPIENTS = "لا يوجد أي مستلم صالح من بين المعرّفات المحددة."
+
+TIMED_ANNOUNCEMENT_FAILED = "تعذّر إطلاق الإعلان المؤقت."
+
+STOP_TIMED_ANNOUNCEMENT_FAILED = "تعذّر إيقاف الإعلان المؤقت."
 
 LOAD_SERVICES_CATALOG_FAILED = "تعذّر تحميل كتالوج الخدمات المحلي."
 
@@ -120,6 +128,38 @@ def withdrawal_not_pending(withdrawal_id: int, status: str) -> str:
 
 def withdrawal_already_processed(withdrawal_id: int) -> str:
     return f"طلب السحب #{withdrawal_id} مُعالَج مسبقًا أو لم يعد معلّقًا."
+
+
+LOAD_MANUAL_ORDERS_FAILED = "تعذّر تحميل طلبات التنفيذ اليدوي المعلقة."
+
+COMPLETE_MANUAL_ORDER_FAILED = "تعذّر إتمام طلب التنفيذ اليدوي."
+
+REJECT_MANUAL_ORDER_FAILED = "تعذّر رفض طلب التنفيذ اليدوي."
+
+LOAD_MANUAL_ORDER_HISTORY_FAILED = "تعذّر تحميل سجل طلبات التنفيذ اليدوي."
+
+
+def manual_order_not_found(_order_id: int = 0) -> str:
+    return "طلب التنفيذ اليدوي غير موجود."
+
+
+def manual_order_not_pending(_order_id: int = 0, status: str = "") -> str:
+    status_text = f" (الحالة: {status})" if status else ""
+    return f"طلب التنفيذ اليدوي ليس معلّقًا{status_text}."
+
+
+def manual_order_already_processed(_order_id: int = 0) -> str:
+    return "طلب التنفيذ اليدوي مُعالَج مسبقًا أو لم يعد معلّقًا."
+
+
+SEND_MANUAL_ORDER_NOTIFY_FAILED = "تعذّر إرسال الإشعار للعميل."
+
+MANUAL_ORDER_REF_UNAVAILABLE = (
+    "تعذّر الحصول على رقم الطلب من الموزّد. "
+    "تحقق من إعدادات API أو بيانات الطلب ثم أعد المحاولة."
+)
+
+BOT_TOKEN_NOT_CONFIGURED = "لم يتم ضبط BOT_TOKEN — تعذّر إرسال الرسائل عبر تيليغرام."
 
 
 LOAD_USER_PROFILE_FAILED = "تعذّر تحميل الملف الشامل للعميل."

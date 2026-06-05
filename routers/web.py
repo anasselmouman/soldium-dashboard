@@ -114,6 +114,20 @@ async def orders_page(request: Request):
     )
 
 
+@router.get("/manual-orders")
+async def manual_orders_page(request: Request):
+    return templates.TemplateResponse(
+        request,
+        "manual_orders.html",
+        {
+            "page_title": "لوحة تحكم سولديوم",
+            "active_nav": "manual_orders",
+            "page_heading": "طلبات التنفيذ اليدوي",
+            "page_subheading": "طابور الخدمات التي تحتاج معالجة يدوية من الإدارة",
+        },
+    )
+
+
 @router.get("/withdrawals")
 async def withdrawals_page(request: Request):
     return templates.TemplateResponse(
@@ -151,6 +165,6 @@ async def broadcast_page(request: Request):
             "page_title": "نظام البث — سولديوم",
             "active_nav": "broadcast",
             "page_heading": "نظام البث",
-            "page_subheading": "رسائل جماعية لجميع المستخدمين",
+            "page_subheading": "رسائل مخصّصة، بث جماعي، وإعلانات مؤقتة عبر تيليغرام",
         },
     )

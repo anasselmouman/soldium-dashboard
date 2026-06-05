@@ -62,7 +62,7 @@
 
         type="search"
 
-        placeholder="بحث برقم الطلب لدى المزوّد أو معرّف المستخدم…"
+        placeholder="بحث برقم الطلب أو معرّف المستخدم…"
 
         class="w-full rounded-lg border border-slate-700 bg-surface-900 py-2.5 ps-10 pe-4 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-accent-500"
 
@@ -91,6 +91,8 @@
         <option value="">كل الحالات</option>
 
         <option value="pending">قيد الانتظار</option>
+
+        <option value="pending_admin">بانتظار تنفيذ الإدارة</option>
 
         <option value="in progress">قيد التنفيذ</option>
 
@@ -168,7 +170,7 @@
 
             <th class="px-4 py-3 font-medium">المعرّف</th>
 
-            <th class="px-4 py-3 font-medium">رقم المزوّد</th>
+            <th class="px-4 py-3 font-medium">رقم الطلب</th>
 
             <th class="px-4 py-3 font-medium">المستخدم</th>
 
@@ -388,6 +390,8 @@
 
     failed: "فشل التنفيذ",
 
+    "pending admin": "بانتظار تنفيذ الإدارة",
+
   };
 
 
@@ -511,6 +515,12 @@
     if (key === "completed") {
 
       return "bg-emerald-500/10 text-emerald-300 border-emerald-500/30";
+
+    }
+
+    if (key === "pending admin") {
+
+      return "bg-orange-500/10 text-orange-300 border-orange-500/30";
 
     }
 
@@ -720,9 +730,7 @@
 
       <tr class="hover:bg-surface-800/40 transition" data-order-id="${order.id}">
 
-        <td class="px-4 py-3 font-mono text-slate-300">${order.id}</td>
-
-        <td class="px-4 py-3 font-mono text-xs text-slate-400">${providerId}</td>
+        <td class="px-4 py-3 font-mono text-xs text-slate-300">${providerId}</td>
 
         <td class="px-4 py-3">${userDisplayName(order)}</td>
 
@@ -738,7 +746,10 @@
 
         <td class="px-4 py-3 font-semibold text-emerald-300">${formatDh(order.amount)}</td>
 
-        <td class="px-4 py-3">${statusBadgeHtml(order.status)}</td>
+        <td class="px-4 py-3">
+          ${statusBadgeHtml(order.status)}
+          ${normalizeStatusKey(order.status) === "pending admin" ? `<div class="mt-1"><a href="/manual-orders" class="text-[10px] text-accent-400 hover:underline">معالجة يدوية ←</a></div>` : ""}
+        </td>
 
         <td class="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">${formatDate(order.created_at)}</td>
 
@@ -782,7 +793,7 @@
 
     state.selectedOrder = order;
 
-    const displayNum = order.provider_order_id || `#${order.id}`;
+    const displayNum = order.provider_order_id || "—";
 
     modal.label.textContent = displayNum;
 

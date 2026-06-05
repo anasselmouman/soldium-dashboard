@@ -24,5 +24,6 @@ def status_label_ar(status_key: str) -> str:
         "partial": "مكتمل جزئياً",
         "refunded": "مسترد",
         "failed": "فشل التنفيذ",
+        "pending admin": "بانتظار تنفيذ الإدارة",
     }
     return mapping.get(status_key, "قيد المعالجة")

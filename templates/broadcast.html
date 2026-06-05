@@ -1,9 +1,41 @@
 {% extends "base.html" %}
+{% from "partials/broadcast_composer.html" import broadcast_composer %}
 
 {% block title %}{{ page_title }}{% endblock %}
 
-{% block content %}
+{% block head %}
 <style>
+  .broadcast-tabs {
+    clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 0 100%);
+    border: 1px solid #243047;
+    background: linear-gradient(180deg, #111827 0%, #0b0f17 100%);
+  }
+  .broadcast-tab {
+    position: relative;
+    color: #94a3b8;
+    border-bottom: 3px solid transparent;
+    transition: color 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+  }
+  .broadcast-tab:hover:not(:disabled) {
+    color: #e2e8f0;
+    background: rgba(14, 165, 233, 0.06);
+  }
+  .broadcast-tab--active {
+    color: #7dd3fc;
+    border-bottom-color: #0ea5e9;
+    background: rgba(14, 165, 233, 0.1);
+  }
+  .broadcast-tab--disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+  .tab-panel {
+    animation: tabFadeIn 0.25s ease-out;
+  }
+  @keyframes tabFadeIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
   .broadcast-toolbar-btn {
     display: inline-flex;
     align-items: center;
@@ -88,131 +120,279 @@
     font-size: 0.8rem;
     font-style: italic;
   }
+  .recipient-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.25rem 0.5rem 0.25rem 0.65rem;
+    border-radius: 9999px;
+    border: 1px solid rgba(14, 165, 233, 0.35);
+    background: rgba(14, 165, 233, 0.1);
+    color: #bae6fd;
+    font-size: 0.75rem;
+  }
+  .recipient-chip button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.1rem;
+    height: 1.1rem;
+    border-radius: 9999px;
+    color: #94a3b8;
+    transition: color 0.15s, background 0.15s;
+  }
+  .recipient-chip button:hover {
+    color: #fecaca;
+    background: rgba(239, 68, 68, 0.2);
+  }
+  .search-result-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.5rem 0.75rem;
+    border-radius: 0.5rem;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .search-result-item:hover {
+    background: rgba(14, 165, 233, 0.12);
+  }
 </style>
+{% endblock %}
 
+{% block content %}
 <section class="max-w-3xl space-y-6">
   <div id="alert" class="hidden rounded-lg border px-4 py-3 text-sm" role="alert"></div>
 
-  <form id="broadcast-form" class="soldium-cut-card p-6 space-y-5">
-    <div>
-      <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
-        <label for="message-html" class="block text-sm font-medium text-slate-300">
-          نص الرسالة
-        </label>
-        <span class="text-[11px] text-slate-500">وسوم HTML المدعومة في تيليغرام فقط</span>
-      </div>
-
-      <div
-        class="rounded-t-lg border border-b-0 border-slate-600 bg-surface-900/80 px-2 py-2 flex flex-wrap items-center gap-1.5"
-        role="toolbar"
-        aria-label="أدوات تنسيق الرسالة"
+  <nav class="broadcast-tabs overflow-x-auto" aria-label="أقسام نظام البث">
+    <div class="flex min-w-max" role="tablist">
+      <button
+        type="button"
+        role="tab"
+        id="tab-btn-private"
+        class="broadcast-tab broadcast-tab--active flex-1 px-4 sm:px-6 py-3.5 text-sm font-semibold whitespace-nowrap"
+        aria-selected="true"
+        aria-controls="tab-panel-private"
+        data-tab="private"
       >
-        <button type="button" class="broadcast-toolbar-btn" data-format="b" title="عريض — يُطبَّق على النص المحدد">
-          <kbd dir="ltr">B</kbd>
-          <span class="hidden sm:inline">عريض</span>
-        </button>
-        <button type="button" class="broadcast-toolbar-btn" data-format="i" title="مائل">
-          <kbd dir="ltr" class="italic">I</kbd>
-          <span class="hidden sm:inline">مائل</span>
-        </button>
-        <button type="button" class="broadcast-toolbar-btn" data-format="u" title="تسطير">
-          <kbd dir="ltr" class="underline">U</kbd>
-          <span class="hidden sm:inline">تسطير</span>
-        </button>
-        <button type="button" class="broadcast-toolbar-btn" data-format="s" title="شطب">
-          <kbd dir="ltr" class="line-through">S</kbd>
-          <span class="hidden sm:inline">شطب</span>
-        </button>
-        <span class="w-px h-6 bg-slate-700/80 mx-0.5" aria-hidden="true"></span>
-        <button type="button" class="broadcast-toolbar-btn" data-format="code" title="كود — نص أحادي المسافة">
-          <kbd dir="ltr">&lt;/&gt;</kbd>
-          <span class="hidden sm:inline">كود</span>
-        </button>
-        <button type="button" class="broadcast-toolbar-btn" data-format="a" title="رابط — يطلب عنوان URL">
-          <span aria-hidden="true">🔗</span>
-          <span class="hidden sm:inline">رابط</span>
-        </button>
-      </div>
-
-      <textarea
-        id="message-html"
-        name="message_html"
-        rows="10"
-        maxlength="4000"
-        required
-        placeholder="اكتب رسالة البث هنا… استخدم شريط الأدوات أعلاه للتنسيق دون كتابة الوسوم يدويًا."
-        class="w-full rounded-b-lg border border-slate-600 bg-surface-800 px-4 py-3 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-accent-500 resize-y leading-relaxed"
-        dir="auto"
-      ></textarea>
-      <p class="mt-2 text-xs text-slate-500">
-        <span id="char-count">0</span> / 4000 حرف
-      </p>
+        رسالة خاصة
+      </button>
+      <button
+        type="button"
+        role="tab"
+        id="tab-btn-mass"
+        class="broadcast-tab flex-1 px-4 sm:px-6 py-3.5 text-sm font-semibold whitespace-nowrap"
+        aria-selected="false"
+        aria-controls="tab-panel-mass"
+        data-tab="mass"
+      >
+        بث جماعي
+      </button>
+      <button
+        type="button"
+        role="tab"
+        id="tab-btn-timed"
+        class="broadcast-tab flex-1 px-4 sm:px-6 py-3.5 text-sm font-semibold whitespace-nowrap"
+        aria-selected="false"
+        aria-controls="tab-panel-timed"
+        data-tab="timed"
+      >
+        إعلان مؤقت
+      </button>
     </div>
+  </nav>
 
-    <div class="space-y-2">
-      <div class="flex items-center justify-between gap-2">
-        <h2 class="text-sm font-semibold text-slate-200">معاينة حية</h2>
-        <span class="text-[11px] text-slate-500">كما ستظهر تقريبًا في تيليغرام</span>
-      </div>
-      <div
-        class="rounded-xl border border-slate-700/80 bg-surface-950/60 p-4 min-h-[5.5rem]"
-        aria-live="polite"
-        aria-atomic="true"
-      >
-        <div class="flex justify-start" dir="auto">
-          <div id="live-preview" class="tg-preview-bubble w-full max-w-full">
-            <p class="tg-preview-empty m-0">ستظهر معاينة الرسالة هنا أثناء الكتابة…</p>
-          </div>
+  <!-- تبويب: رسالة خاصة -->
+  <div
+    id="tab-panel-private"
+    class="tab-panel"
+    role="tabpanel"
+    aria-labelledby="tab-btn-private"
+  >
+    <form id="private-form" class="soldium-cut-card p-6 space-y-5">
+      <div class="space-y-3">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <h2 class="text-sm font-semibold text-slate-200">المستلمون</h2>
+          <span id="recipient-count" class="text-xs text-slate-500">0 مستلم</span>
+        </div>
+
+        <div class="relative">
+          <label for="user-search" class="sr-only">بحث عن مستخدم</label>
+          <input
+            id="user-search"
+            type="search"
+            autocomplete="off"
+            placeholder="ابحث بمعرّف تيليغرام أو اسم المستخدم…"
+            class="w-full rounded-lg border border-slate-600 bg-surface-800 px-4 py-2.5 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-accent-500"
+          />
+          <div
+            id="search-results"
+            class="hidden absolute z-20 mt-1 w-full rounded-lg border border-slate-700 bg-surface-900 shadow-xl max-h-48 overflow-y-auto"
+            role="listbox"
+          ></div>
+        </div>
+
+        <div id="selected-recipients" class="flex flex-wrap gap-2 min-h-[2rem]">
+          <p id="no-recipients-hint" class="text-xs text-slate-500 italic">لم يُحدَّد أي مستلم بعد.</p>
+        </div>
+
+        <div class="flex flex-col sm:flex-row gap-2">
+          <label for="bulk-ids" class="sr-only">إضافة معرّفات</label>
+          <input
+            id="bulk-ids"
+            type="text"
+            placeholder="أو ألصق معرّفات (فاصلة أو سطر جديد)"
+            class="flex-1 rounded-lg border border-slate-600 bg-surface-800 px-4 py-2.5 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-accent-500 font-mono"
+            dir="ltr"
+          />
+          <button
+            id="add-bulk-btn"
+            type="button"
+            class="shrink-0 rounded-lg border border-slate-600 bg-surface-800 px-4 py-2.5 text-sm font-medium text-slate-200 hover:bg-surface-700 hover:border-slate-500 transition"
+          >
+            إضافة
+          </button>
         </div>
       </div>
+
+      {{ broadcast_composer(
+        "private",
+        "تُرسل الرسالة للمستخدمين المحدّدين فقط مع ترويسة «رسالة من الإدارة»."
+      ) }}
+
+      <div id="private-loading" class="hidden rounded-lg border border-amber-900/50 bg-amber-950/30 px-4 py-3 flex items-center gap-3 text-sm text-amber-200">
+        <svg class="h-5 w-5 animate-spin shrink-0" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+        </svg>
+        <span>جاري الإرسال… الرجاء عدم إغلاق الصفحة حتى اكتمال العملية.</span>
+      </div>
+
+      <button
+        id="private-submit-btn"
+        type="submit"
+        disabled
+        class="w-full rounded-lg bg-gradient-to-l from-accent-600 to-indigo-600 hover:from-accent-500 hover:to-indigo-500 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-accent-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition"
+      >
+        إرسال رسالة خاصة
+      </button>
+    </form>
+  </div>
+
+  <!-- تبويب: بث جماعي -->
+  <div
+    id="tab-panel-mass"
+    class="tab-panel hidden"
+    role="tabpanel"
+    aria-labelledby="tab-btn-mass"
+  >
+    <form id="mass-form" class="soldium-cut-card p-6 space-y-5">
+      {{ broadcast_composer(
+        "mass",
+        "يُرسل البث لجميع المستخدمين المسجّلين. التنسيقات المسموحة: عريض، مائل، تسطير، شطب، كود، ورابط فقط."
+      ) }}
+
+      <div id="mass-loading" class="hidden rounded-lg border border-amber-900/50 bg-amber-950/30 px-4 py-3 flex items-center gap-3 text-sm text-amber-200">
+        <svg class="h-5 w-5 animate-spin shrink-0" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+        </svg>
+        <span>جاري الإرسال… الرجاء عدم إغلاق الصفحة حتى اكتمال العملية.</span>
+      </div>
+
+      <button
+        id="mass-submit-btn"
+        type="submit"
+        class="w-full rounded-lg bg-gradient-to-l from-accent-600 to-indigo-600 hover:from-accent-500 hover:to-indigo-500 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-accent-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition"
+      >
+        إرسال البث للجميع
+      </button>
+    </form>
+  </div>
+
+  <!-- تبويب: إعلان مؤقت -->
+  <div
+    id="tab-panel-timed"
+    class="tab-panel hidden space-y-5"
+    role="tabpanel"
+    aria-labelledby="tab-btn-timed"
+  >
+    <form id="timed-form" class="soldium-cut-card p-6 space-y-5">
+      <div class="space-y-2">
+        <h2 class="text-sm font-semibold text-slate-200">إطلاق إعلان مؤقت</h2>
+        <p class="text-xs text-slate-500 leading-relaxed">
+          يُرسل فوراً لجميع المستخدمين الحاليين، ويُعاد إرساله عند كل ضغطة على
+          <span class="font-mono text-slate-400">/start</span>
+          لأي مستخدم طالما الإعلان نشط. زر «إخفاء» يحذف الرسالة من المحادثة فقط.
+        </p>
+      </div>
+
+      <div>
+        <label for="timed-ends-at" class="block text-sm font-medium text-slate-300 mb-2">
+          ينتهي في
+        </label>
+        <input
+          id="timed-ends-at"
+          type="datetime-local"
+          required
+          class="w-full rounded-lg border border-slate-600 bg-surface-800 px-4 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-accent-500"
+        />
+        <p class="mt-2 text-[11px] text-slate-500">يُستخدم توقيت جهازك المحلي — يُحوَّل تلقائياً عند الإرسال.</p>
+      </div>
+
+      {{ broadcast_composer(
+        "timed",
+        "يُعرض الإعلان مع ترويسة «إعلان مؤقت» وزر إخفاء دائم."
+      ) }}
+
+      <div id="timed-loading" class="hidden rounded-lg border border-amber-900/50 bg-amber-950/30 px-4 py-3 flex items-center gap-3 text-sm text-amber-200">
+        <svg class="h-5 w-5 animate-spin shrink-0" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+        </svg>
+        <span>جاري الإطلاق والإرسال… الرجاء عدم إغلاق الصفحة.</span>
+      </div>
+
+      <button
+        id="timed-submit-btn"
+        type="submit"
+        class="w-full rounded-lg bg-gradient-to-l from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-amber-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition"
+      >
+        إطلاق الإعلان المؤقت
+      </button>
+    </form>
+
+    <div class="soldium-cut-card p-6 space-y-4">
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <h2 class="text-sm font-semibold text-slate-200">سجل الإعلانات</h2>
+        <button
+          id="timed-refresh-btn"
+          type="button"
+          class="text-xs text-accent-400 hover:text-accent-300 transition"
+        >
+          تحديث
+        </button>
+      </div>
+      <div id="timed-list" class="space-y-3 text-sm text-slate-400">
+        <p class="text-xs italic">جاري التحميل…</p>
+      </div>
     </div>
-
-    <p class="text-[11px] text-slate-500 leading-relaxed border-t border-slate-800/80 pt-3">
-      يُرسل البث لجميع المستخدمين المسجّلين. التنسيقات المسموحة: عريض، مائل، تسطير، شطب، كود، ورابط فقط.
-    </p>
-
-    <div id="loading-state" class="hidden rounded-lg border border-amber-900/50 bg-amber-950/30 px-4 py-3 flex items-center gap-3 text-sm text-amber-200">
-      <svg class="h-5 w-5 animate-spin shrink-0" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
-      </svg>
-      <span>جاري الإرسال… الرجاء عدم إغلاق الصفحة حتى اكتمال العملية.</span>
-    </div>
-
-    <button
-      id="submit-btn"
-      type="submit"
-      class="w-full rounded-lg bg-gradient-to-l from-accent-600 to-indigo-600 hover:from-accent-500 hover:to-indigo-500 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-accent-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition"
-    >
-      إرسال البث للجميع
-    </button>
-  </form>
+  </div>
 </section>
 {% endblock %}
 
 {% block scripts %}
+<script src="/static/js/broadcast_composer.js"></script>
 <script>
-  const form = document.getElementById("broadcast-form");
-  const textarea = document.getElementById("message-html");
-  const charCount = document.getElementById("char-count");
-  const submitBtn = document.getElementById("submit-btn");
-  const loadingState = document.getElementById("loading-state");
   const alertEl = document.getElementById("alert");
-  const livePreview = document.getElementById("live-preview");
-  const toolbar = document.querySelector('[role="toolbar"]');
+  const tabButtons = document.querySelectorAll(".broadcast-tab[data-tab]");
+  const panelPrivate = document.getElementById("tab-panel-private");
+  const panelMass = document.getElementById("tab-panel-mass");
+  const panelTimed = document.getElementById("tab-panel-timed");
 
-  const ALLOWED_TAGS = new Set([
-    "b", "strong", "i", "em", "u", "ins", "s", "strike", "del",
-    "code", "pre", "a", "span", "br",
-  ]);
-  const TAG_ALIASES = {
-    strong: "b",
-    em: "i",
-    ins: "u",
-    strike: "s",
-    del: "s",
-  };
-  const SAFE_HREF = /^(https?:|tg:|mailto:)/i;
+  const MAX_RECIPIENTS = 100;
+  const USERS_API = "/api/users";
 
   function showAlert(message, type = "error") {
     alertEl.textContent = message;
@@ -231,177 +411,319 @@
   function parseDetail(body) {
     const detail = body?.detail;
     if (typeof detail === "string") return detail;
-    return "فشل إرسال البث.";
+    return "فشلت العملية.";
   }
 
-  function escapeAttr(value) {
-    return String(value)
-      .replace(/&/g, "&amp;")
-      .replace(/"/g, "&quot;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;");
+  function switchTab(tabId) {
+    tabButtons.forEach((btn) => {
+      const active = btn.dataset.tab === tabId;
+      btn.classList.toggle("broadcast-tab--active", active);
+      btn.setAttribute("aria-selected", active ? "true" : "false");
+    });
+    panelPrivate.classList.toggle("hidden", tabId !== "private");
+    panelMass.classList.toggle("hidden", tabId !== "mass");
+    panelTimed.classList.toggle("hidden", tabId !== "timed");
+    if (tabId === "timed") loadTimedAnnouncements();
   }
 
-  function sanitizeNode(node, out) {
-    if (node.nodeType === Node.TEXT_NODE) {
-      out.appendChild(document.createTextNode(node.textContent));
-      return;
-    }
-    if (node.nodeType !== Node.ELEMENT_NODE) return;
+  tabButtons.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (btn.disabled) return;
+      switchTab(btn.dataset.tab);
+    });
+  });
 
-    let tag = node.tagName.toLowerCase();
-    if (TAG_ALIASES[tag]) tag = TAG_ALIASES[tag];
+  const privateComposer = initBroadcastComposer("private", { showAlert });
+  const massComposer = initBroadcastComposer("mass", { showAlert });
+  const timedComposer = initBroadcastComposer("timed", { showAlert });
 
-    if (tag === "br") {
-      out.appendChild(document.createElement("br"));
-      return;
-    }
+  // --- Recipient selection ---
+  const recipients = new Map();
+  const userSearch = document.getElementById("user-search");
+  const searchResults = document.getElementById("search-results");
+  const selectedContainer = document.getElementById("selected-recipients");
+  const noRecipientsHint = document.getElementById("no-recipients-hint");
+  const recipientCount = document.getElementById("recipient-count");
+  const privateSubmitBtn = document.getElementById("private-submit-btn");
+  const bulkIdsInput = document.getElementById("bulk-ids");
+  const addBulkBtn = document.getElementById("add-bulk-btn");
 
-    if (!ALLOWED_TAGS.has(tag) && !TAG_ALIASES[node.tagName.toLowerCase()]) {
-      node.childNodes.forEach((child) => sanitizeNode(child, out));
-      return;
-    }
+  let searchTimer = null;
 
-    if (tag === "span") {
-      const cls = node.getAttribute("class") || "";
-      if (!cls.includes("tg-spoiler")) {
-        node.childNodes.forEach((child) => sanitizeNode(child, out));
-        return;
-      }
-    }
+  function updateRecipientUI() {
+    const count = recipients.size;
+    recipientCount.textContent =
+      count === 0
+        ? "0 مستلم"
+        : count === 1
+          ? "مستلم واحد"
+          : `${count.toLocaleString("ar-MA")} مستلمين`;
+    privateSubmitBtn.disabled = count === 0;
+    noRecipientsHint.classList.toggle("hidden", count > 0);
 
-    const el = document.createElement(tag);
+    selectedContainer.querySelectorAll(".recipient-chip").forEach((el) => el.remove());
 
-    if (tag === "a") {
-      const href = (node.getAttribute("href") || "").trim();
-      if (href && SAFE_HREF.test(href)) {
-        el.setAttribute("href", href);
-        el.setAttribute("rel", "noopener noreferrer");
-        el.setAttribute("target", "_blank");
-      } else {
-        node.childNodes.forEach((child) => sanitizeNode(child, out));
-        return;
-      }
-    }
-
-    if (tag === "span" && (node.getAttribute("class") || "").includes("tg-spoiler")) {
-      el.className = "tg-spoiler";
-      el.style.background = "rgba(100,116,139,0.45)";
-      el.style.borderRadius = "0.2rem";
-      el.style.padding = "0 0.15rem";
-    }
-
-    node.childNodes.forEach((child) => sanitizeNode(child, el));
-    out.appendChild(el);
+    recipients.forEach((user, userId) => {
+      const chip = document.createElement("span");
+      chip.className = "recipient-chip";
+      chip.dataset.userId = String(userId);
+      const label = user.telegram_name
+        ? `${user.telegram_name} (#${userId})`
+        : `#${userId}`;
+      chip.innerHTML =
+        `<span class="truncate max-w-[12rem]">${label}</span>` +
+        `<button type="button" aria-label="إزالة ${userId}" data-remove="${userId}">` +
+        `<svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg>` +
+        `</button>`;
+      selectedContainer.appendChild(chip);
+    });
   }
 
-  function renderLivePreview() {
-    const raw = textarea.value;
-    charCount.textContent = String(raw.length);
-
-    if (!raw.trim()) {
-      livePreview.innerHTML =
-        '<p class="tg-preview-empty m-0">ستظهر معاينة الرسالة هنا أثناء الكتابة…</p>';
-      return;
+  function addRecipient(user) {
+    const userId = Number(user.user_id);
+    if (!userId || recipients.has(userId)) return false;
+    if (recipients.size >= MAX_RECIPIENTS) {
+      showAlert(`الحد الأقصى ${MAX_RECIPIENTS} مستلم في رسالة واحدة.`);
+      return false;
     }
-
-    const parser = new DOMParser();
-    const withBreaks = raw.replace(/\n/g, "<br>");
-    const doc = parser.parseFromString("<div>" + withBreaks + "</div>", "text/html");
-    const container = document.createElement("div");
-    const source = doc.body.firstElementChild;
-    if (source) {
-      source.childNodes.forEach((child) => sanitizeNode(child, container));
-    }
-    livePreview.innerHTML = "";
-    if (container.childNodes.length) {
-      livePreview.appendChild(container);
-    } else {
-      livePreview.textContent = raw;
-    }
+    recipients.set(userId, {
+      user_id: userId,
+      telegram_name: user.telegram_name || null,
+    });
+    updateRecipientUI();
+    return true;
   }
 
-  function insertAtCursor(before, after, placeholder) {
-    const start = textarea.selectionStart;
-    const end = textarea.selectionEnd;
-    const value = textarea.value;
-    const selected = value.slice(start, end);
-    const inner = selected || placeholder || "";
-    const insertion = before + inner + after;
-    textarea.setRangeText(insertion, start, end, "end");
-    if (!selected && placeholder) {
-      const selectStart = start + before.length;
-      textarea.setSelectionRange(selectStart, selectStart + placeholder.length);
-    } else {
-      const cursor = start + insertion.length;
-      textarea.setSelectionRange(cursor, cursor);
-    }
-    textarea.focus();
-    renderLivePreview();
+  function removeRecipient(userId) {
+    recipients.delete(Number(userId));
+    updateRecipientUI();
   }
 
-  function wrapSelection(tag, options = {}) {
-    const start = textarea.selectionStart;
-    const end = textarea.selectionEnd;
-    const value = textarea.value;
-    const selected = value.slice(start, end);
-
-    if (tag === "a") {
-      const defaultUrl = "https://";
-      const urlInput = window.prompt(
-        "أدخل رابط URL (يجب أن يبدأ بـ https:// أو http:// أو tg:// أو mailto:):",
-        defaultUrl
-      );
-      if (urlInput === null) return;
-      const url = urlInput.trim();
-      if (!url) {
-        showAlert("لم يتم إدخال رابط.");
-        return;
-      }
-      if (!SAFE_HREF.test(url)) {
-        showAlert("رابط غير مسموح. استخدم https:// أو http:// أو tg:// أو mailto: فقط.");
-        return;
-      }
-      const label = selected || "نص الرابط";
-      insertAtCursor('<a href="' + escapeAttr(url) + '">', "</a>", label);
-      return;
-    }
-
-    const open = "<" + tag + ">";
-    const close = "</" + tag + ">";
-    const placeholders = {
-      b: "نص عريض",
-      i: "نص مائل",
-      u: "نص مسطّر",
-      s: "نص مشطوب",
-      code: "كود",
-    };
-    insertAtCursor(open, close, placeholders[tag] || "");
-  }
-
-  toolbar.addEventListener("click", (e) => {
-    const btn = e.target.closest("[data-format]");
+  selectedContainer.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-remove]");
     if (!btn) return;
-    e.preventDefault();
-    const format = btn.getAttribute("data-format");
-    if (format === "a") {
-      wrapSelection("a");
-    } else if (format) {
-      wrapSelection(format);
+    removeRecipient(btn.dataset.remove);
+  });
+
+  function hideSearchResults() {
+    searchResults.classList.add("hidden");
+    searchResults.innerHTML = "";
+  }
+
+  function renderSearchResults(users) {
+    searchResults.innerHTML = "";
+    if (!users.length) {
+      searchResults.innerHTML =
+        '<p class="px-3 py-2 text-xs text-slate-500">لا توجد نتائج.</p>';
+      searchResults.classList.remove("hidden");
+      return;
+    }
+
+    users.forEach((user) => {
+      const item = document.createElement("div");
+      item.className = "search-result-item";
+      item.role = "option";
+      const name = user.telegram_name || "—";
+      const already = recipients.has(Number(user.user_id));
+      item.innerHTML =
+        `<div class="min-w-0">` +
+        `<p class="text-sm text-slate-200 truncate">${name}</p>` +
+        `<p class="text-xs font-mono text-slate-500">#${user.user_id}</p>` +
+        `</div>` +
+        (already
+          ? `<span class="text-[10px] text-slate-500 shrink-0">مُضاف</span>`
+          : `<span class="text-[10px] text-accent-400 shrink-0">+ إضافة</span>`);
+      if (!already) {
+        item.addEventListener("click", () => {
+          addRecipient(user);
+          hideSearchResults();
+          userSearch.value = "";
+        });
+      }
+      searchResults.appendChild(item);
+    });
+    searchResults.classList.remove("hidden");
+  }
+
+  async function searchUsers(term) {
+    if (!term.trim()) {
+      hideSearchResults();
+      return;
+    }
+    try {
+      const params = new URLSearchParams({ search: term.trim(), limit: "10", page: "1" });
+      const response = await fetch(`${USERS_API}?${params}`, { credentials: "same-origin" });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(parseDetail(body));
+      renderSearchResults(body.users || []);
+    } catch (err) {
+      hideSearchResults();
+    }
+  }
+
+  userSearch.addEventListener("input", () => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => searchUsers(userSearch.value), 300);
+  });
+
+  userSearch.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") hideSearchResults();
+  });
+
+  document.addEventListener("click", (e) => {
+    if (!userSearch.contains(e.target) && !searchResults.contains(e.target)) {
+      hideSearchResults();
     }
   });
 
-  textarea.addEventListener("input", renderLivePreview);
-  textarea.addEventListener("keyup", renderLivePreview);
-  textarea.addEventListener("paste", () => {
-    requestAnimationFrame(renderLivePreview);
+  function parseBulkIds(raw) {
+    return raw
+      .split(/[\s,;]+/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .map((s) => parseInt(s, 10))
+      .filter((n) => Number.isFinite(n) && n > 0);
+  }
+
+  async function addBulkRecipients() {
+    const ids = parseBulkIds(bulkIdsInput.value);
+    if (!ids.length) {
+      showAlert("أدخل معرّفاً واحداً على الأقل.");
+      return;
+    }
+
+    hideAlert();
+    const toFetch = ids.filter((id) => !recipients.has(id));
+    if (!toFetch.length) {
+      bulkIdsInput.value = "";
+      return;
+    }
+
+    let added = 0;
+    let invalid = [];
+
+    for (const id of toFetch) {
+      if (recipients.size >= MAX_RECIPIENTS) {
+        showAlert(`الحد الأقصى ${MAX_RECIPIENTS} مستلم — توقّف الإضافة.`);
+        break;
+      }
+      try {
+        const params = new URLSearchParams({ search: String(id), limit: "1", page: "1" });
+        const response = await fetch(`${USERS_API}?${params}`, { credentials: "same-origin" });
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error();
+        const match = (body.users || []).find((u) => Number(u.user_id) === id);
+        if (match && addRecipient(match)) {
+          added += 1;
+        } else {
+          invalid.push(id);
+        }
+      } catch {
+        invalid.push(id);
+      }
+    }
+
+    bulkIdsInput.value = "";
+    if (added > 0) {
+      showAlert(`تمت إضافة ${added.toLocaleString("ar-MA")} مستلم.`, "success");
+    }
+    if (invalid.length) {
+      showAlert(
+        `معرّفات غير موجودة: ${invalid.map(String).join("، ")}`,
+        added > 0 ? "success" : "error"
+      );
+    }
+  }
+
+  addBulkBtn.addEventListener("click", addBulkRecipients);
+  bulkIdsInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      addBulkRecipients();
+    }
   });
 
-  form.addEventListener("submit", async (e) => {
+  // --- Private message submit ---
+  const privateForm = document.getElementById("private-form");
+  const privateLoading = document.getElementById("private-loading");
+
+  privateForm.addEventListener("submit", async (e) => {
     e.preventDefault();
     hideAlert();
 
-    const message = textarea.value.trim();
+    const message = privateComposer.getMessage();
+    if (!message) {
+      showAlert("أدخل نص الرسالة قبل الإرسال.");
+      return;
+    }
+    if (recipients.size === 0) {
+      showAlert("حدّد مستلماً واحداً على الأقل.");
+      return;
+    }
+
+    const count = recipients.size;
+    const confirmMsg =
+      count === 1
+        ? "هل أنت متأكد من إرسال هذه الرسالة إلى مستخدم واحد؟"
+        : `هل أنت متأكد من إرسال هذه الرسالة إلى ${count.toLocaleString("ar-MA")} مستخدم؟`;
+    if (!confirm(confirmMsg)) return;
+
+    privateSubmitBtn.disabled = true;
+    privateComposer.setDisabled(true);
+    addBulkBtn.disabled = true;
+    userSearch.disabled = true;
+    privateLoading.classList.remove("hidden");
+
+    try {
+      const response = await fetch("/api/broadcast/private", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({
+          user_ids: Array.from(recipients.keys()),
+          message_html: message,
+        }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(parseDetail(body));
+
+      const sent = Number(body.sent ?? 0);
+      const total = Number(body.total_recipients ?? 0);
+      const failed = Number(body.failed ?? 0);
+      const invalid = body.invalid_user_ids || [];
+
+      let msg = `تم إرسال الرسالة إلى ${sent.toLocaleString("ar-MA")} مستخدم من أصل ${total.toLocaleString("ar-MA")}.`;
+      if (failed > 0) {
+        msg += ` (${failed.toLocaleString("ar-MA")} فشل — قد يكون المستخدم لم يبدأ البوت).`;
+      }
+      if (invalid.length > 0) {
+        msg += ` معرّفات غير صالحة: ${invalid.map(String).join("، ")}.`;
+      }
+      showAlert(msg, "success");
+      privateComposer.clear();
+      recipients.clear();
+      updateRecipientUI();
+    } catch (err) {
+      showAlert(err.message || "تعذّر إرسال الرسالة الخاصة.");
+    } finally {
+      privateLoading.classList.add("hidden");
+      privateComposer.setDisabled(false);
+      addBulkBtn.disabled = false;
+      userSearch.disabled = false;
+      updateRecipientUI();
+    }
+  });
+
+  // --- Mass broadcast submit ---
+  const massForm = document.getElementById("mass-form");
+  const massSubmitBtn = document.getElementById("mass-submit-btn");
+  const massLoading = document.getElementById("mass-loading");
+
+  massForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    hideAlert();
+
+    const message = massComposer.getMessage();
     if (!message) {
       showAlert("أدخل نص الرسالة قبل الإرسال.");
       return;
@@ -415,10 +737,9 @@
       return;
     }
 
-    submitBtn.disabled = true;
-    textarea.disabled = true;
-    toolbar.querySelectorAll("button").forEach((b) => { b.disabled = true; });
-    loadingState.classList.remove("hidden");
+    massSubmitBtn.disabled = true;
+    massComposer.setDisabled(true);
+    massLoading.classList.remove("hidden");
 
     try {
       const response = await fetch("/api/broadcast", {
@@ -438,18 +759,202 @@
         msg += ` (${failed.toLocaleString("ar-MA")} فشل — قد يكون المستخدم لم يبدأ البوت).`;
       }
       showAlert(msg, "success");
-      textarea.value = "";
-      renderLivePreview();
+      massComposer.clear();
     } catch (err) {
       showAlert(err.message || "تعذّر إرسال البث.");
     } finally {
-      submitBtn.disabled = false;
-      textarea.disabled = false;
-      toolbar.querySelectorAll("button").forEach((b) => { b.disabled = false; });
-      loadingState.classList.add("hidden");
+      massSubmitBtn.disabled = false;
+      massComposer.setDisabled(false);
+      massLoading.classList.add("hidden");
     }
   });
 
-  renderLivePreview();
+  // --- Timed announcements ---
+  const timedForm = document.getElementById("timed-form");
+  const timedSubmitBtn = document.getElementById("timed-submit-btn");
+  const timedLoading = document.getElementById("timed-loading");
+  const timedEndsAt = document.getElementById("timed-ends-at");
+  const timedList = document.getElementById("timed-list");
+  const timedRefreshBtn = document.getElementById("timed-refresh-btn");
+
+  function formatDateTimeLocal(date) {
+    const pad = (n) => String(n).padStart(2, "0");
+    return (
+      date.getFullYear() +
+      "-" + pad(date.getMonth() + 1) +
+      "-" + pad(date.getDate()) +
+      "T" + pad(date.getHours()) +
+      ":" + pad(date.getMinutes())
+    );
+  }
+
+  function formatDisplayDate(value) {
+    if (!value) return "—";
+    const normalized = String(value).includes("T") ? value : String(value).replace(" ", "T");
+    const dt = new Date(normalized);
+    if (Number.isNaN(dt.getTime())) return value;
+    return dt.toLocaleString("ar-MA", { dateStyle: "medium", timeStyle: "short" });
+  }
+
+  const statusLabels = {
+    active: { text: "نشط", class: "text-emerald-400" },
+    stopped: { text: "موقوف", class: "text-amber-400" },
+    expired: { text: "منتهٍ", class: "text-slate-500" },
+  };
+
+  function setDefaultEndsAt() {
+    const dt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    timedEndsAt.min = formatDateTimeLocal(new Date());
+    if (!timedEndsAt.value) timedEndsAt.value = formatDateTimeLocal(dt);
+  }
+  setDefaultEndsAt();
+
+  async function loadTimedAnnouncements() {
+    timedList.innerHTML = '<p class="text-xs italic text-slate-500">جاري التحميل…</p>';
+    try {
+      const response = await fetch("/api/broadcast/timed", { credentials: "same-origin" });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(parseDetail(body));
+      renderTimedAnnouncements(body.announcements || []);
+    } catch (err) {
+      timedList.innerHTML =
+        `<p class="text-xs text-red-300">${err.message || "تعذّر تحميل السجل."}</p>`;
+    }
+  }
+
+  function renderTimedAnnouncements(items) {
+    const activeCount = items.filter((item) => item.status === "active").length;
+    if (typeof window.updateNavBroadcastBadge === "function") {
+      window.updateNavBroadcastBadge(activeCount);
+    }
+
+    if (!items.length) {
+      timedList.innerHTML = '<p class="text-xs italic text-slate-500">لا توجد إعلانات بعد.</p>';
+      return;
+    }
+
+    timedList.innerHTML = items
+      .map((item) => {
+        const st = statusLabels[item.status] || statusLabels.expired;
+        const preview = String(item.message_html || "")
+          .replace(/<[^>]+>/g, " ")
+          .replace(/\s+/g, " ")
+          .trim()
+          .slice(0, 120);
+        const stopBtn =
+          item.status === "active"
+            ? `<button type="button" class="timed-stop-btn mt-2 rounded-lg border border-red-900/50 bg-red-950/30 px-3 py-1.5 text-xs font-medium text-red-200 hover:bg-red-900/45 transition" data-id="${item.id}">إيقاف الآن</button>`
+            : "";
+        return (
+          `<article class="rounded-lg border border-slate-700/80 bg-surface-900/60 p-4 space-y-2">` +
+          `<div class="flex flex-wrap items-center justify-between gap-2">` +
+          `<span class="font-mono text-xs text-slate-500">#${item.id}</span>` +
+          `<span class="text-xs font-semibold ${st.class}">${st.text}</span>` +
+          `</div>` +
+          `<p class="text-sm text-slate-300 line-clamp-2">${preview || "—"}</p>` +
+          `<div class="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-slate-500">` +
+          `<span>ينتهي: ${formatDisplayDate(item.ends_at)}</span>` +
+          `</div>` +
+          stopBtn +
+          `</article>`
+        );
+      })
+      .join("");
+  }
+
+  timedList.addEventListener("click", async (e) => {
+    const btn = e.target.closest(".timed-stop-btn");
+    if (!btn) return;
+    const id = btn.dataset.id;
+    if (!confirm("إيقاف هذا الإعلان؟ لن يظهر للمستخدمين الجدد بعد الآن.")) return;
+    btn.disabled = true;
+    try {
+      const response = await fetch(`/api/broadcast/timed/${id}/stop`, {
+        method: "POST",
+        credentials: "same-origin",
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(parseDetail(body));
+      showAlert(body.message || "تم إيقاف الإعلان.", "success");
+      await loadTimedAnnouncements();
+    } catch (err) {
+      showAlert(err.message || "تعذّر إيقاف الإعلان.");
+      btn.disabled = false;
+    }
+  });
+
+  timedRefreshBtn.addEventListener("click", loadTimedAnnouncements);
+
+  timedForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    hideAlert();
+
+    const message = timedComposer.getMessage();
+    if (!message) {
+      showAlert("أدخل نص الإعلان قبل الإطلاق.");
+      return;
+    }
+    if (!timedEndsAt.value) {
+      showAlert("حدّد وقت انتهاء الإعلان.");
+      return;
+    }
+
+    const endsDate = new Date(timedEndsAt.value);
+    if (Number.isNaN(endsDate.getTime()) || endsDate.getTime() <= Date.now()) {
+      showAlert("وقت الانتهاء يجب أن يكون في المستقبل.");
+      return;
+    }
+
+    if (
+      !confirm(
+        "إطلاق إعلان مؤقت؟ سيُرسل فوراً لجميع المستخدمين الحاليين، ويظهر للجدد عند /start حتى انتهاء المهلة."
+      )
+    ) {
+      return;
+    }
+
+    timedSubmitBtn.disabled = true;
+    timedComposer.setDisabled(true);
+    timedLoading.classList.remove("hidden");
+
+    try {
+      const response = await fetch("/api/broadcast/timed", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({
+          message_html: message,
+          ends_at: endsDate.toISOString(),
+        }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(parseDetail(body));
+
+      const sent = Number(body.sent ?? 0);
+      const total = Number(body.total_users ?? 0);
+      const failed = Number(body.failed ?? 0);
+      let msg = `تم إطلاق الإعلان #${body.announcement?.id ?? ""} — وصل إلى ${sent.toLocaleString("ar-MA")} من ${total.toLocaleString("ar-MA")}.`;
+      if (failed > 0) {
+        msg += ` (${failed.toLocaleString("ar-MA")} فشل).`;
+      }
+      showAlert(msg, "success");
+      timedComposer.clear();
+      setDefaultEndsAt();
+      await loadTimedAnnouncements();
+    } catch (err) {
+      showAlert(err.message || "تعذّر إطلاق الإعلان.");
+    } finally {
+      timedSubmitBtn.disabled = false;
+      timedComposer.setDisabled(false);
+      timedLoading.classList.add("hidden");
+    }
+  });
+
+  updateRecipientUI();
+
+  const initialTab = new URLSearchParams(window.location.search).get("tab");
+  if (initialTab === "private" || initialTab === "mass" || initialTab === "timed") {
+    switchTab(initialTab);
+  }
 </script>
 {% endblock %}

@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Any
 
 from database_connector import get_db
+from timed_announcements import list_active_timed_announcements
 
 
 async def get_dashboard_stats() -> dict[str, Any]:
@@ -44,12 +45,28 @@ async def get_dashboard_stats() -> dict[str, Any]:
             wd_row = await cursor.fetchone()
         pending_withdrawals = int(wd_row[0]) if wd_row else 0
 
-    pending_actions = pending_deposits + pending_withdrawals
+        async with db.execute(
+            """
+            SELECT COUNT(*)
+            FROM orders
+            WHERE LOWER(REPLACE(status, '_', ' ')) = 'pending admin'
+              AND COALESCE(fulfillment_mode, 'auto') = 'admin'
+            """
+        ) as cursor:
+            mo_row = await cursor.fetchone()
+        pending_manual_orders = int(mo_row[0]) if mo_row else 0
+
+    active_timed_announcements = await list_active_timed_announcements()
+
+    pending_actions = pending_deposits + pending_withdrawals + pending_manual_orders
     return {
         "total_users": total_users,
         "total_revenue_dh": round(total_revenue, 2),
         "completed_orders": completed_orders,
         "pending_deposits": pending_deposits,
         "pending_withdrawals": pending_withdrawals,
+        "pending_manual_orders": pending_manual_orders,
         "pending_actions": pending_actions,
+        "active_timed_announcements_count": len(active_timed_announcements),
+        "active_timed_announcements": active_timed_announcements,
     }

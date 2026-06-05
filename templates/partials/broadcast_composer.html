@@ -1,0 +1,83 @@
+{% macro broadcast_composer(prefix, help_text) %}
+<div class="broadcast-composer space-y-5" data-composer-prefix="{{ prefix }}">
+  <div>
+    <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+      <label for="{{ prefix }}-message-html" class="block text-sm font-medium text-slate-300">
+        نص الرسالة
+      </label>
+      <span class="text-[11px] text-slate-500">وسوم HTML المدعومة في تيليغرام فقط</span>
+    </div>
+
+    <div
+      id="{{ prefix }}-toolbar"
+      class="rounded-t-lg border border-b-0 border-slate-600 bg-surface-900/80 px-2 py-2 flex flex-wrap items-center gap-1.5"
+      role="toolbar"
+      aria-label="أدوات تنسيق الرسالة"
+    >
+      <button type="button" class="broadcast-toolbar-btn" data-format="b" title="عريض — يُطبَّق على النص المحدد">
+        <kbd dir="ltr">B</kbd>
+        <span class="hidden sm:inline">عريض</span>
+      </button>
+      <button type="button" class="broadcast-toolbar-btn" data-format="i" title="مائل">
+        <kbd dir="ltr" class="italic">I</kbd>
+        <span class="hidden sm:inline">مائل</span>
+      </button>
+      <button type="button" class="broadcast-toolbar-btn" data-format="u" title="تسطير">
+        <kbd dir="ltr" class="underline">U</kbd>
+        <span class="hidden sm:inline">تسطير</span>
+      </button>
+      <button type="button" class="broadcast-toolbar-btn" data-format="s" title="شطب">
+        <kbd dir="ltr" class="line-through">S</kbd>
+        <span class="hidden sm:inline">شطب</span>
+      </button>
+      <span class="w-px h-6 bg-slate-700/80 mx-0.5" aria-hidden="true"></span>
+      <button type="button" class="broadcast-toolbar-btn" data-format="code" title="كود — نص أحادي المسافة">
+        <kbd dir="ltr">&lt;/&gt;</kbd>
+        <span class="hidden sm:inline">كود</span>
+      </button>
+      <button type="button" class="broadcast-toolbar-btn" data-format="a" title="رابط — يطلب عنوان URL">
+        <span aria-hidden="true">🔗</span>
+        <span class="hidden sm:inline">رابط</span>
+      </button>
+    </div>
+
+    <textarea
+      id="{{ prefix }}-message-html"
+      name="message_html"
+      rows="10"
+      maxlength="4000"
+      required
+      placeholder="اكتب رسالتك هنا… استخدم شريط الأدوات أعلاه للتنسيق دون كتابة الوسوم يدويًا."
+      class="w-full rounded-b-lg border border-slate-600 bg-surface-800 px-4 py-3 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-accent-500 resize-y leading-relaxed"
+      dir="auto"
+    ></textarea>
+    <p class="mt-2 text-xs text-slate-500">
+      <span id="{{ prefix }}-char-count">0</span> / 4000 حرف
+    </p>
+  </div>
+
+  <div class="space-y-2">
+    <div class="flex items-center justify-between gap-2">
+      <h2 class="text-sm font-semibold text-slate-200">معاينة حية</h2>
+      <span class="text-[11px] text-slate-500">كما ستظهر تقريبًا في تيليغرام</span>
+    </div>
+    <div
+      class="rounded-xl border border-slate-700/80 bg-surface-950/60 p-4 min-h-[5.5rem]"
+      aria-live="polite"
+      aria-atomic="true"
+    >
+      <div class="flex justify-start" dir="auto">
+        <div id="{{ prefix }}-live-preview" class="tg-preview-bubble w-full max-w-full">
+          <p class="tg-preview-empty m-0">ستظهر معاينة الرسالة هنا أثناء الكتابة…</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {% if help_text %}
+  <p class="text-[11px] text-slate-500 leading-relaxed border-t border-slate-800/80 pt-3">
+    {{ help_text }}
+  </p>
+  {% endif %}
+</div>
+{% endmacro %}

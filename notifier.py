@@ -11,6 +11,7 @@ import aiohttp
 from dotenv import load_dotenv
 
 from database_connector import get_db
+from utils.order_ref import display_order_ref_html
 
 _BASE_DIR = Path(__file__).resolve().parent
 load_dotenv(_BASE_DIR / ".env")
@@ -24,7 +25,9 @@ _REQUEST_TIMEOUT = aiohttp.ClientTimeout(total=15)
 
 # Matches soldium-bot/utils/smart_notifications.py
 DISMISS_CALLBACK_PREFIX = "notify:dismiss:"
+ANNOUNCE_DISMISS_CALLBACK_PREFIX = "announce:dismiss:"
 DISMISS_BUTTON_TEXT = "✖️ إخفاء الإشعار"
+ANNOUNCE_DISMISS_BUTTON_TEXT = "✖️ إخفاء الإعلان"
 
 
 def _token_configured() -> bool:
@@ -55,6 +58,79 @@ def build_dismiss_reply_markup(chat_id: int, message_id: int) -> dict[str, Any]:
             ]
         ]
     }
+
+
+def announce_dismiss_callback_data(announcement_id: int) -> str:
+    return f"{ANNOUNCE_DISMISS_CALLBACK_PREFIX}{announcement_id}"
+
+
+def build_announce_dismiss_reply_markup(announcement_id: int) -> dict[str, Any]:
+    return {
+        "inline_keyboard": [
+            [
+                {
+                    "text": ANNOUNCE_DISMISS_BUTTON_TEXT,
+                    "callback_data": announce_dismiss_callback_data(announcement_id),
+                }
+            ]
+        ]
+    }
+
+
+def format_timed_announcement_text(message_html: str) -> str:
+    body = (message_html or "").strip()
+    return f"<b>📢 SOLDIUM | إعلان مؤقت</b>\n\n{body}"
+
+
+async def send_timed_announcement(
+    user_id: int,
+    announcement_id: int,
+    message_html: str,
+) -> bool:
+    """Send a timed announcement — dismiss button only removes the chat message."""
+    if not _token_configured():
+        logger.warning(
+            "BOT_TOKEN not configured — skipping timed announcement for user_id=%s",
+            user_id,
+        )
+        return False
+
+    chat_id = user_id
+    text = format_timed_announcement_text(message_html)
+    payload = {
+        "chat_id": chat_id,
+        "text": text,
+        "parse_mode": "HTML",
+        "disable_web_page_preview": True,
+        "reply_markup": build_announce_dismiss_reply_markup(announcement_id),
+    }
+
+    try:
+        async with aiohttp.ClientSession(timeout=_REQUEST_TIMEOUT) as session:
+            sent = await _telegram_post(session, "sendMessage", payload)
+            if not sent:
+                return False
+        logger.info(
+            "Timed announcement id=%s sent to user_id=%s",
+            announcement_id,
+            user_id,
+        )
+        return True
+    except aiohttp.ClientError as exc:
+        logger.warning(
+            "Telegram timed announcement failed for user_id=%s: %s",
+            user_id,
+            exc,
+        )
+        return False
+    except Exception as exc:
+        logger.warning(
+            "Unexpected error sending timed announcement to user_id=%s: %s",
+            user_id,
+            exc,
+            exc_info=True,
+        )
+        return False
 
 
 def _format_dh(amount: float) -> str:
@@ -233,21 +309,25 @@ async def notify_referral_level_changed(user_id: int, new_level: int) -> bool:
     return await send_telegram_notification(user_id, text)
 
 
+
 def _order_status_label_ar(status: str) -> str:
     from utils.order_status import normalize_order_status_key, status_label_ar
 
     return status_label_ar(normalize_order_status_key(status))
 
 
+def _customer_order_display_ref(provider_order_id: str | None) -> str:
+    return display_order_ref_html(provider_order_id)
+
+
 async def notify_order_status_changed(
     user_id: int,
     *,
-    order_id: int,
     provider_order_id: str | None,
     new_status: str,
     refunded_dh: float = 0.0,
 ) -> bool:
-    display_id = html.escape(provider_order_id or str(order_id))
+    display_id = _customer_order_display_ref(provider_order_id)
     status_ar = html.escape(_order_status_label_ar(new_status))
     status_key = new_status.strip().lower().replace("_", " ")
     lines = [
@@ -279,6 +359,64 @@ async def notify_withdrawal_approved(
         "تم إرسال المبلغ إلى محفظتك/حسابك حسب البيانات التي قدّمتها."
     )
     return await send_telegram_notification(user_id, text)
+
+
+async def notify_manual_order_completed(
+    user_id: int,
+    *,
+    provider_order_id: str | None = None,
+) -> bool:
+    display_ref = _customer_order_display_ref(provider_order_id)
+    text = (
+        "<b>✅ SOLDIUM | تم تنفيذ طلبك</b>\n"
+        f"تم تنفيذ الطلب <code>#{display_ref}</code> بنجاح.\n"
+        "شكراً لثقتك بنا!"
+    )
+    return await send_telegram_notification(user_id, text)
+
+
+async def notify_admin_direct_message(user_id: int, message_html: str) -> bool:
+    """Admin-composed HTML message without order context."""
+    body = (message_html or "").strip()
+    text = f"<b>💬 SOLDIUM | رسالة من الإدارة</b>\n\n{body}"
+    return await send_telegram_notification(user_id, text)
+
+
+async def notify_manual_order_customer_message(
+    user_id: int,
+    *,
+    provider_order_id: str | None = None,
+    message: str,
+) -> bool:
+    display_ref = _customer_order_display_ref(provider_order_id)
+    body = _escape(message, fallback="")
+    text = (
+        "<b>💬 SOLDIUM | رسالة من الإدارة</b>\n"
+        f"بخصوص طلبك <code>#{display_ref}</code>:\n\n"
+        f"{body}"
+    )
+    return await send_telegram_notification(user_id, text)
+
+
+async def notify_manual_order_rejected(
+    user_id: int,
+    *,
+    provider_order_id: str | None = None,
+    amount_dh: float,
+    reason: str | None = None,
+) -> bool:
+    display_ref = _customer_order_display_ref(provider_order_id)
+    amount = html.escape(_format_dh(amount_dh))
+    lines = [
+        "<b>⚠️ SOLDIUM | تم رفض الطلب</b>",
+        f"تعذّر تنفيذ الطلب <code>#{display_ref}</code>.",
+        f"تم إرجاع <b>{amount} درهم</b> إلى رصيدك.",
+    ]
+    reason_text = (reason or "").strip()
+    if reason_text:
+        lines.append(f"السبب: {_escape(reason_text, fallback='')}")
+    lines.append("تواصل مع الدعم إذا احتجت مساعدة.")
+    return await send_telegram_notification(user_id, "\n".join(lines))
 
 
 async def notify_withdrawal_rejected(

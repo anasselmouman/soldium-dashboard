@@ -90,10 +90,8 @@ def _filter_clause(
         term = search.strip()
         if term.isdigit():
             uid = int(term)
-            clauses.append(
-                "(o.user_id = ? OR o.provider_order_id LIKE ? OR CAST(o.id AS TEXT) = ?)"
-            )
-            params.extend([uid, f"%{term}%", term])
+            clauses.append("(o.user_id = ? OR o.provider_order_id LIKE ?)")
+            params.extend([uid, f"%{term}%"])
         else:
             like = f"%{term}%"
             clauses.append(

@@ -65,9 +65,56 @@ class BroadcastRequest(BaseModel):
     )
 
 
+class PrivateMessageRequest(BaseModel):
+    user_ids: list[int] = Field(
+        ...,
+        min_length=1,
+        max_length=100,
+        description="معرّفات المستخدمين المستهدفين (1–100)",
+    )
+    message_html: str = Field(
+        ...,
+        min_length=1,
+        max_length=4000,
+        description="نص الرسالة بصيغة HTML المدعومة في تيليغرام",
+    )
+
+
+class LaunchTimedAnnouncementRequest(BaseModel):
+    message_html: str = Field(
+        ...,
+        min_length=1,
+        max_length=4000,
+        description="نص الإعلان بصيغة HTML المدعومة في تيليغرام",
+    )
+    ends_at: str = Field(
+        ...,
+        min_length=1,
+        max_length=40,
+        description="وقت انتهاء الإعلان (ISO 8601)",
+    )
+
+
 class RejectWithdrawalRequest(BaseModel):
     reason: str | None = Field(
         default=None,
         max_length=500,
         description="سبب الرفض (يُرسل للمستخدم عبر تيليغرام)",
+    )
+
+
+class RejectManualOrderRequest(BaseModel):
+    reason: str | None = Field(
+        default=None,
+        max_length=500,
+        description="سبب الرفض (يُرسل للمستخدم عبر تيليغرام)",
+    )
+
+
+class SendManualOrderNotifyRequest(BaseModel):
+    message: str = Field(
+        ...,
+        min_length=1,
+        max_length=2000,
+        description="نص الرسالة للعميل (صاحب الطلب) عبر تيليغرام",
     )

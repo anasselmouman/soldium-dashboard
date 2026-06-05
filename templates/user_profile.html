@@ -175,7 +175,7 @@
         <table class="min-w-full text-sm text-start">
           <thead class="bg-surface-800/80 text-xs uppercase tracking-wider text-slate-400">
             <tr>
-              <th class="px-4 py-3 font-medium">المعرّف</th>
+              <th class="px-4 py-3 font-medium">رقم الطلب</th>
               <th class="px-4 py-3 font-medium">الخدمة</th>
               <th class="px-4 py-3 font-medium">الكمية</th>
               <th class="px-4 py-3 font-medium">المبلغ</th>
@@ -388,9 +388,20 @@
       .join("");
   }
 
+  function orderDisplayRef(row) {
+    const ref = String(row?.provider_order_id || "").trim();
+    return ref || "—";
+  }
+
   function renderOrders(rows) {
     const filtered = rows.filter((row) => {
-      const text = [row.id, row.service_name, row.amount, row.status, row.created_at].join(" ");
+      const text = [
+        orderDisplayRef(row),
+        row.service_name,
+        row.amount,
+        row.status,
+        row.created_at,
+      ].join(" ");
       return matchesSearch(text);
     });
 
@@ -408,7 +419,7 @@
       .map(
         (row) => `
         <tr class="hover:bg-surface-800/40 transition">
-          <td class="px-4 py-3 font-mono text-slate-300">${row.id}</td>
+          <td class="px-4 py-3 font-mono text-slate-300">${escapeHtml(orderDisplayRef(row))}</td>
           <td class="px-4 py-3 text-slate-200 max-w-[200px] truncate" title="${escapeHtml(row.service_name)}">${escapeHtml(row.service_name)}</td>
           <td class="px-4 py-3 text-slate-300">${row.quantity}</td>
           <td class="px-4 py-3 font-semibold text-emerald-300">${formatDh(row.amount)}</td>

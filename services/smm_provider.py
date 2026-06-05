@@ -374,3 +374,36 @@ async def fetch_provider_services() -> dict[str, Any]:
 
     return {"ok": True, "services": services, "count": len(services)}
 
+
+async def submit_provider_order(
+    *,
+    api_key: str,
+    service_id: int,
+    link: str,
+    quantity: int,
+) -> str:
+    """Submit order to distributor API; returns distributor order id."""
+    if not _key_valid(api_key):
+        raise ProviderUnavailableError("مفتاح API غير مضبوط.")
+
+    payload = {
+        "key": api_key,
+        "action": "add",
+        "service": service_id,
+        "link": link,
+        "quantity": quantity,
+    }
+
+    async with aiohttp.ClientSession(timeout=_REQUEST_TIMEOUT) as session:
+        async with session.post(API_URL, data=payload) as response:
+            data = await _parse_response(response, action="add")
+
+    if not isinstance(data, dict):
+        raise ProviderUnavailableError("صيغة استجابة إنشاء الطلب غير متوقعة.")
+
+    provider_ref = str(data.get("order") or "").strip()
+    if not provider_ref:
+        raise ProviderUnavailableError("لم يُرجع الموزّد رقم الطلب.")
+
+    return provider_ref
+

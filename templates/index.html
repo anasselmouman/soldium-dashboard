@@ -40,6 +40,29 @@
 
 
 
+  <article
+    id="active-announcements-banner"
+    class="hidden soldium-cut-card p-5 sm:p-6 border border-orange-500/35 bg-gradient-to-l from-orange-950/25 to-surface-900 shadow-lg shadow-orange-950/20"
+  >
+    <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-4">
+      <div>
+        <p class="text-xs font-semibold uppercase tracking-widest text-orange-300/90">إعلانات مؤقتة نشطة</p>
+        <p class="mt-1 text-sm text-slate-400">
+          <span id="active-announcements-count">0</span> إعلان(ات) قيد البث للمستخدمين
+        </p>
+      </div>
+      <a
+        href="/broadcast?tab=timed"
+        class="shrink-0 inline-flex items-center justify-center rounded-lg border border-orange-500/40 bg-orange-500/10 px-4 py-2 text-xs font-semibold text-orange-200 hover:bg-orange-500/20 transition"
+      >
+        إدارة الإعلانات
+      </a>
+    </div>
+    <ul id="active-announcements-list" class="space-y-2"></ul>
+  </article>
+
+
+
   <!-- بطاقة VIP — رصيد المزوّد -->
 
   <article
@@ -286,6 +309,18 @@
 
         </li>
 
+        <li>
+
+          <a id="link-pending-manual-orders" href="/manual-orders" class="flex items-center justify-between gap-2 rounded-lg border border-slate-800 bg-surface-800/50 px-3 py-2 hover:border-slate-600 transition">
+
+            <span class="text-slate-300">طلبات يدوية معلّقة</span>
+
+            <span id="kpi-pending-manual-orders" class="font-mono font-semibold text-slate-200">—</span>
+
+          </a>
+
+        </li>
+
       </ul>
 
     </article>
@@ -305,6 +340,8 @@
       <a href="/withdrawals" class="rounded-lg border border-slate-700 bg-surface-800 px-4 py-2 text-sm text-slate-200 hover:border-accent-500/40 hover:text-accent-300 transition">إدارة السحوبات</a>
 
       <a href="/orders" class="rounded-lg border border-slate-700 bg-surface-800 px-4 py-2 text-sm text-slate-200 hover:border-accent-500/40 hover:text-accent-300 transition">إدارة الطلبات</a>
+
+      <a href="/manual-orders" class="rounded-lg border border-slate-700 bg-surface-800 px-4 py-2 text-sm text-slate-200 hover:border-accent-500/40 hover:text-accent-300 transition">التنفيذ اليدوي</a>
 
       <a href="/users" class="rounded-lg border border-slate-700 bg-surface-800 px-4 py-2 text-sm text-slate-200 hover:border-accent-500/40 hover:text-accent-300 transition">إدارة المستخدمين</a>
 
@@ -361,6 +398,16 @@
     linkDeposits: document.getElementById("link-pending-deposits"),
 
     linkWithdrawals: document.getElementById("link-pending-withdrawals"),
+
+    pendingManualOrders: document.getElementById("kpi-pending-manual-orders"),
+
+    linkManualOrders: document.getElementById("link-pending-manual-orders"),
+
+    activeAnnouncementsBanner: document.getElementById("active-announcements-banner"),
+
+    activeAnnouncementsCount: document.getElementById("active-announcements-count"),
+
+    activeAnnouncementsList: document.getElementById("active-announcements-list"),
 
     providerCard: document.getElementById("provider-card"),
 
@@ -540,6 +587,53 @@
 
 
 
+  function formatDisplayDate(value) {
+    if (!value) return "—";
+    const normalized = String(value).includes("T") ? value : String(value).replace(" ", "T");
+    const dt = new Date(normalized.includes("Z") || normalized.includes("+") ? normalized : normalized + "Z");
+    if (Number.isNaN(dt.getTime())) return value;
+    return dt.toLocaleString("ar-MA", { dateStyle: "medium", timeStyle: "short" });
+  }
+
+
+
+  function renderActiveAnnouncements(items) {
+    const list = Array.isArray(items) ? items : [];
+    const count = list.length;
+
+    if (typeof window.updateNavBroadcastBadge === "function") {
+      window.updateNavBroadcastBadge(count);
+    }
+
+    if (!els.activeAnnouncementsBanner || !els.activeAnnouncementsList) return;
+
+    if (count === 0) {
+      els.activeAnnouncementsBanner.classList.add("hidden");
+      els.activeAnnouncementsList.innerHTML = "";
+      return;
+    }
+
+    els.activeAnnouncementsBanner.classList.remove("hidden");
+    if (els.activeAnnouncementsCount) {
+      els.activeAnnouncementsCount.textContent = count.toLocaleString("ar-MA");
+    }
+
+    els.activeAnnouncementsList.innerHTML = list
+      .map(
+        (item) =>
+          `<li class="rounded-lg border border-orange-900/40 bg-surface-900/60 px-4 py-3">` +
+          `<div class="flex flex-wrap items-center justify-between gap-2 mb-1">` +
+          `<span class="font-mono text-xs text-orange-300/90">#${item.id}</span>` +
+          `<span class="text-[11px] text-slate-500">ينتهي ${formatDisplayDate(item.ends_at)}</span>` +
+          `</div>` +
+          `<p class="text-sm text-slate-200 line-clamp-2">${item.preview || "—"}</p>` +
+          `</li>`
+      )
+      .join("");
+  }
+
+
+
   function populateStats(data) {
 
     els.users.textContent = formatCount(data.total_users ?? 0);
@@ -556,6 +650,8 @@
 
     const pendingWd = Number(data.pending_withdrawals ?? 0);
 
+    const pendingMo = Number(data.pending_manual_orders ?? 0);
+
 
 
     els.pendingTotal.textContent = formatCount(pendingTotal);
@@ -563,6 +659,14 @@
     applyPendingHighlight(pendingDep, els.linkDeposits, els.pendingDeposits);
 
     applyPendingHighlight(pendingWd, els.linkWithdrawals, els.pendingWithdrawals);
+
+    applyPendingHighlight(pendingMo, els.linkManualOrders, els.pendingManualOrders);
+
+    if (typeof window.updateNavManualOrdersBadge === "function") {
+      window.updateNavManualOrdersBadge(pendingMo);
+    }
+
+    renderActiveAnnouncements(data.active_timed_announcements ?? []);
 
 
 
