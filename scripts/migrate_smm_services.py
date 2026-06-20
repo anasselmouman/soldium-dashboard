@@ -22,8 +22,25 @@ if str(_ROOT) not in sys.path:
 
 from db_schema import ensure_smm_services_table  # noqa: E402
 from database_connector import db_transaction, get_db  # noqa: E402
+from settings import SERVICE_USD_TO_DH_MULTIPLIER  # noqa: E402
 from smm_services import count_services  # noqa: E402
 from utils.services_catalog import flatten_catalog, load_catalog  # noqa: E402
+
+
+def _resolve_provider_rate(row: dict) -> float:
+    provider_rate = row.get("provider_rate_usd")
+    if provider_rate is not None:
+        try:
+            rate = float(provider_rate)
+            if rate > 0:
+                return rate
+        except (TypeError, ValueError):
+            pass
+    if row.get("is_per_unit"):
+        price_dh = float(row.get("price_dh") or 0)
+        if price_dh > 0:
+            return price_dh / SERVICE_USD_TO_DH_MULTIPLIER
+    return 0.0
 
 
 async def migrate(*, force: bool) -> None:
@@ -42,12 +59,18 @@ async def migrate(*, force: bool) -> None:
         return
 
     upserted = 0
+    zero_rate_count = 0
     async with db_transaction() as db:
         for row in rows:
             service_id = str(row["provider_id"])
-            provider_rate = row.get("provider_rate_usd")
-            if provider_rate is None:
-                provider_rate = 0.0
+            provider_rate = _resolve_provider_rate(row)
+            if provider_rate <= 0:
+                zero_rate_count += 1
+            category = (
+                "per_unit"
+                if row.get("is_per_unit")
+                else str(row.get("category_label") or "")
+            )
             await db.execute(
                 """
                 INSERT INTO smm_services (
@@ -76,7 +99,7 @@ async def migrate(*, force: bool) -> None:
                 """,
                 (
                     service_id,
-                    str(row.get("category_label") or ""),
+                    category,
                     str(row.get("name") or ""),
                     float(provider_rate),
                     float(row.get("price_dh") or 0),
@@ -94,6 +117,11 @@ async def migrate(*, force: bool) -> None:
             upserted += 1
 
     print(f"Migration complete: {upserted} services upserted into smm_services.")
+    if zero_rate_count:
+        print(
+            f"Note: {zero_rate_count} service(s) have no provider USD rate. "
+            "Run the dashboard (with SMM API keys) or sync from the catalog page."
+        )
 
 
 def main() -> None:

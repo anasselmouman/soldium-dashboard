@@ -72,9 +72,6 @@ REMEMBER_ME_MAX_AGE_SECONDS = int(
     os.getenv("REMEMBER_ME_MAX_AGE_SECONDS", str(90 * 24 * 3600)),
 )
 
-RESET_TEST_DATA_TOKEN = os.getenv("RESET_TEST_DATA_TOKEN", "").strip()
-
-
 
 
 

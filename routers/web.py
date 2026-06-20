@@ -151,7 +151,7 @@ async def services_page(request: Request):
             "page_title": "أسعار الخدمات — سولديوم",
             "active_nav": "services",
             "page_heading": "أسعار الخدمات",
-            "page_subheading": "كتالوج الخدمات وأسعار الدرهم",
+            "page_subheading": "جميع الخدمات في قاعدة البيانات — تفعيل، إيقاف، وتعديل الأسعار",
         },
     )
 

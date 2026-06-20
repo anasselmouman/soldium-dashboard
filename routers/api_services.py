@@ -17,6 +17,24 @@ from utils.messages_ar import (
 router = APIRouter(prefix="/api", tags=["services"])
 
 
+@router.get("/services/platforms")
+async def get_service_platforms(
+    bot_only: bool = Query(default=False, description="عرض منصات البوت فقط"),
+):
+    try:
+        platforms = await catalog.list_platforms(bot_only=bot_only)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("list service platforms failed")
+        raise HTTPException(
+            status_code=503,
+            detail=f"{LOAD_SERVICES_CATALOG_FAILED} ({exc})",
+        ) from exc
+
+    return {"ok": True, "platforms": platforms, "count": len(platforms)}
+
+
 @router.get("/services/categories")
 async def get_service_categories():
     try:
@@ -35,17 +53,21 @@ async def get_service_categories():
 
 @router.get("/services")
 async def list_services(
+    platform: str | None = Query(default=None, description="تصفية حسب المنصة"),
     category: str | None = Query(default=None, description="تصفية حسب التصنيف"),
     search: str | None = Query(default=None, description="بحث في الاسم أو المعرّف"),
     page: int = Query(default=1, ge=1),
     limit: int = Query(default=50, ge=1, le=200),
+    bot_only: bool = Query(default=False, description="خدمات البوت النشطة فقط"),
 ):
     try:
         result = await catalog.list_services_paginated(
             category=category,
+            platform=platform,
             search=search,
             page=page,
             limit=limit,
+            bot_only=bot_only,
         )
     except FileNotFoundError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
@@ -64,7 +86,9 @@ async def list_services(
         "total_items": result["total_items"],
         "active_count": result["active_count"],
         "pending_count": result["pending_count"],
+        "platform_count": result["platform_count"],
         "limit": result["limit"],
+        "bot_only": result["bot_only"],
     }
 
 
@@ -123,7 +147,7 @@ async def sync_services_with_provider():
         stats = await catalog.sync_from_provider(
             provider_result.get("services") or [],
         )
-        categories = await catalog.list_categories()
+        platforms = await catalog.list_platforms(bot_only=False)
     except Exception as exc:
         logger.exception("sync merge into db failed")
         raise HTTPException(
@@ -139,7 +163,7 @@ async def sync_services_with_provider():
             f"{stats.get('rates_applied', 0)} سعر مزوّد."
         ),
         "sync_stats": stats,
-        "categories": categories,
+        "platforms": platforms,
     }
 
 

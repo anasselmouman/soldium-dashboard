@@ -156,6 +156,7 @@ def _row(
         "provider_name": item.get("provider_name"),
         "provider_category": item.get("provider_category"),
         "highlight_new": bool(item.get("highlight_new")),
+        "is_per_unit": bool(item.get("price_per_unit")),
     }
 
 

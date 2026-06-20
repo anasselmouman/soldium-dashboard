@@ -128,14 +128,6 @@
 {% block header_actions %}
 <div class="flex items-center gap-2">
   <button
-    id="reset-test-data-btn"
-    type="button"
-    class="inline-flex items-center gap-1.5 rounded-lg border border-red-900/70 bg-red-950/35 px-3 py-2 text-xs font-medium text-red-200 hover:bg-red-900/45 hover:border-red-700 transition"
-    title="يمسح بيانات الاختبار المالية"
-  >
-    تصفير بيانات الاختبار
-  </button>
-  <button
     id="refresh-btn"
     type="button"
     class="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-surface-800 px-3 py-2 text-sm font-medium text-slate-200 hover:bg-surface-700 hover:border-slate-600 transition disabled:opacity-50"
@@ -211,21 +203,27 @@
     role="tabpanel"
     aria-labelledby="tab-btn-treasury"
   >
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 lg:gap-5">
+    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 lg:gap-5">
       <article class="kpi-card kpi-card--blue p-5 sm:p-6">
         <p class="text-xs font-semibold text-sky-300/90 uppercase tracking-wide">إجمالي الإيداعات</p>
         <p id="kpi-deposited" class="mt-2 text-2xl sm:text-3xl font-bold text-white tabular-nums kpi-skeleton h-9 w-36 rounded"></p>
+        <p id="kpi-withdrawn" class="mt-1 text-xs text-slate-400 tabular-nums kpi-skeleton h-4 w-28 rounded"></p>
         <p class="mt-2 text-[11px] text-slate-500">مجموع الإيداعات المكتملة في النظام</p>
       </article>
       <article class="kpi-card kpi-card--green p-5 sm:p-6">
         <p class="text-xs font-semibold text-emerald-300/90 uppercase tracking-wide">المال الحر</p>
         <p id="kpi-free-money" class="mt-2 text-2xl sm:text-3xl font-bold text-emerald-100 tabular-nums kpi-skeleton h-9 w-36 rounded"></p>
-        <p class="mt-2 text-[11px] text-slate-500">أموال مُقفَلة في الطلبات — غير قابلة للسحب</p>
+        <p class="mt-2 text-[11px] text-slate-500">صافي مبالغ الطلبات المنفّذة بعد عمولة المُحيل — غير قابل للسحب</p>
       </article>
       <article class="kpi-card kpi-card--orange p-5 sm:p-6">
         <p class="text-xs font-semibold text-orange-300/90 uppercase tracking-wide">الالتزامات تجاه المستخدمين</p>
         <p id="kpi-liabilities" class="mt-2 text-2xl sm:text-3xl font-bold text-orange-100 tabular-nums kpi-skeleton h-9 w-36 rounded"></p>
-        <p class="mt-2 text-[11px] text-slate-500">أرصدة قابلة للسحب (رئيسي + إحالات)</p>
+        <p class="mt-2 text-[11px] text-slate-500">أرصدة المستخدمين + مستحقات المُحيلين + طلبات قيد التنفيذ</p>
+      </article>
+      <article class="kpi-card p-5 sm:p-6 border-violet-900/40" style="box-shadow: 0 0 40px -14px rgba(167, 139, 250, 0.28);">
+        <p class="text-xs font-semibold text-violet-300/90 uppercase tracking-wide">عمولات الإحالة المدفوعة</p>
+        <p id="kpi-referral-payouts" class="mt-2 text-2xl sm:text-3xl font-bold text-violet-100 tabular-nums kpi-skeleton h-9 w-36 rounded"></p>
+        <p class="mt-2 text-[11px] text-slate-500">إجمالي ما دُفع للمُحيلين عبر النظام</p>
       </article>
     </div>
 
@@ -247,7 +245,7 @@
       <article class="chart-panel chart-panel--donut p-5 sm:p-6">
         <div class="mb-4">
           <h3 class="text-base font-bold text-white">المال الحر مقابل الالتزامات</h3>
-          <p class="text-xs text-slate-500 mt-0.5">توزيع رأس المال المُقفَل مقابل ما تدين به المنصة للمستخدمين</p>
+          <p class="text-xs text-slate-500 mt-0.5">المال الحر من الطلبات المنفّذة مقابل الالتزامات تجاه المستخدمين</p>
         </div>
         <div id="chart-treasury-split" class="min-h-[300px] w-full flex items-center justify-center"></div>
       </article>
@@ -270,12 +268,31 @@
     aria-labelledby="tab-btn-profit"
     hidden
   >
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 lg:gap-5">
+      <article class="kpi-card kpi-card--blue p-5 sm:p-6">
+        <p class="text-xs font-semibold text-sky-300/90 uppercase tracking-wide">إجمالي المبيعات (30 يوم)</p>
+        <p id="kpi-profit-sales" class="mt-2 text-2xl sm:text-3xl font-bold text-sky-100 tabular-nums kpi-skeleton h-9 w-36 rounded"></p>
+        <p class="mt-2 text-[11px] text-slate-500">سعر بيع الخدمات على المنصة (بعد خصم المستردات)</p>
+      </article>
+      <article class="kpi-card kpi-card--orange p-5 sm:p-6">
+        <p class="text-xs font-semibold text-orange-300/90 uppercase tracking-wide">إجمالي التكاليف (30 يوم)</p>
+        <p id="kpi-profit-costs" class="mt-2 text-2xl sm:text-3xl font-bold text-orange-100 tabular-nums kpi-skeleton h-9 w-36 rounded"></p>
+        <p class="mt-2 text-[11px] text-slate-500">تكلفة الخدمات عند المزوّد فقط</p>
+      </article>
+      <article class="kpi-card kpi-card--green p-5 sm:p-6">
+        <p class="text-xs font-semibold text-emerald-300/90 uppercase tracking-wide">صافي الربح (30 يوم)</p>
+        <p id="kpi-profit-net" class="mt-2 text-2xl sm:text-3xl font-bold text-emerald-100 tabular-nums kpi-skeleton h-9 w-36 rounded"></p>
+        <p class="mt-2 text-[11px] text-slate-500">إجمالي المبيعات ناقص تكلفة المزوّد</p>
+      </article>
+    </div>
+
     <article class="chart-panel chart-panel--profit chart-panel--wide p-5 sm:p-6 lg:p-8">
       <div class="mb-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <h3 class="text-lg sm:text-xl font-bold text-white">محرك الأرباح الصافية</h3>
           <p class="text-xs text-slate-500 mt-1 max-w-3xl leading-relaxed">
-            الربح اليومي = (المبيعات − المستردات) − تكلفة المزوّد (كمية/1000 × سعر USD × 10 درهم) − عمولة الإحالة — آخر 30 يومًا.
+            الربح اليومي = إجمالي المبيعات − تكلفة المزوّد — آخر 30 يومًا.
+            تُحسب فقط الطلبات المكتملة والجزئية؛ تُقدَّر تكلفة الجزئي من سجل الاسترداد أو بنسبة الإيراد الصافي.
           </p>
         </div>
         <div class="flex flex-wrap gap-3 text-xs text-slate-400">
@@ -385,13 +402,17 @@
 
     const els = {
       alert: document.getElementById("alert"),
-      resetTestDataBtn: document.getElementById("reset-test-data-btn"),
       refreshBtn: document.getElementById("refresh-btn"),
       refreshIcon: document.getElementById("refresh-icon"),
       lastUpdated: document.getElementById("last-updated"),
       kpiDeposited: document.getElementById("kpi-deposited"),
+      kpiWithdrawn: document.getElementById("kpi-withdrawn"),
       kpiFreeMoney: document.getElementById("kpi-free-money"),
       kpiLiabilities: document.getElementById("kpi-liabilities"),
+      kpiReferralPayouts: document.getElementById("kpi-referral-payouts"),
+      kpiProfitSales: document.getElementById("kpi-profit-sales"),
+      kpiProfitCosts: document.getElementById("kpi-profit-costs"),
+      kpiProfitNet: document.getElementById("kpi-profit-net"),
     };
 
     const tabButtons = Array.from(document.querySelectorAll("[data-tab]"));
@@ -422,9 +443,12 @@
     function formatDhShort(value) {
       const n = Number(value);
       if (Number.isNaN(n)) return "—";
-      if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "م";
-      if (n >= 1_000) return (n / 1_000).toFixed(1) + "ألف";
-      return n.toFixed(0);
+      const abs = Math.abs(n);
+      if (abs >= 1_000_000) return (n / 1_000_000).toFixed(1) + "م";
+      if (abs >= 1_000) return (n / 1_000).toFixed(1) + "ألف";
+      if (abs >= 100) return n.toFixed(0);
+      if (abs >= 1) return n.toFixed(1);
+      return n.toFixed(2);
     }
 
     function formatCount(n) {
@@ -472,15 +496,15 @@
     function setLoading(loading) {
       els.refreshBtn.disabled = loading;
       els.refreshIcon.classList.toggle("animate-spin", loading);
-      if (els.resetTestDataBtn) {
-        els.resetTestDataBtn.disabled = loading;
-        els.resetTestDataBtn.classList.toggle("opacity-60", loading);
-        els.resetTestDataBtn.classList.toggle("cursor-not-allowed", loading);
-      }
     }
 
     async function fetchJson(url) {
-      const res = await fetch(url, { credentials: "same-origin" });
+      let res;
+      try {
+        res = await fetch(url, { credentials: "same-origin" });
+      } catch {
+        throw new Error("تعذّر الاتصال بالخادم. تأكد أن لوحة التحكم تعمل ثم أعد المحاولة.");
+      }
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(parseErrorDetail(body));
       return body;
@@ -593,6 +617,19 @@
       if (!el) return;
       const free = Math.max(0, Number(summary.total_free_money_dh) || 0);
       const liabilities = Math.max(0, Number(summary.total_liabilities_dh) || 0);
+      const total = free + liabilities;
+
+      if (total <= 0) {
+        destroyChart("treasury");
+        el.innerHTML =
+          '<p class="text-sm text-slate-500 text-center py-16">لا توجد بيانات خزينة كافية لعرض التوزيع.</p>';
+        return;
+      }
+
+      if (!el.querySelector(".apexcharts-canvas") && el.querySelector("p")) {
+        el.innerHTML = "";
+      }
+
       const options = {
         ...baseChartOptions(),
         chart: { ...baseChartOptions().chart, type: "donut", height: 300 },
@@ -835,8 +872,29 @@
 
     function populateKpis(summary) {
       clearKpiSkeleton(els.kpiDeposited, formatDh(summary.total_deposited_dh ?? 0));
+      if (els.kpiWithdrawn) {
+        els.kpiWithdrawn.classList.remove("kpi-skeleton", "h-4", "w-28", "rounded");
+        els.kpiWithdrawn.textContent =
+          "السحوبات المكتملة: " + formatDh(summary.total_withdrawn_dh ?? 0);
+      }
       clearKpiSkeleton(els.kpiFreeMoney, formatDh(summary.total_free_money_dh ?? 0));
       clearKpiSkeleton(els.kpiLiabilities, formatDh(summary.total_liabilities_dh ?? 0));
+      if (els.kpiReferralPayouts) {
+        clearKpiSkeleton(els.kpiReferralPayouts, formatDh(summary.referral_payouts_dh ?? 0));
+      }
+    }
+
+    function populateProfitKpis(profit) {
+      const totals = profit?.totals || {};
+      if (els.kpiProfitSales) {
+        clearKpiSkeleton(els.kpiProfitSales, formatDh(totals.sales_dh ?? 0));
+      }
+      if (els.kpiProfitCosts) {
+        clearKpiSkeleton(els.kpiProfitCosts, formatDh(totals.costs_dh ?? 0));
+      }
+      if (els.kpiProfitNet) {
+        clearKpiSkeleton(els.kpiProfitNet, formatDh(totals.net_profit_dh ?? 0));
+      }
     }
 
     function renderTabCharts(tabId) {
@@ -912,6 +970,7 @@
         dataCache = { summary, cashflow, gateways, profit, ordersStatus, leaderboards };
 
         populateKpis(summary);
+        populateProfitKpis(profit);
         renderLeaderboards(leaderboards);
 
         renderTabCharts(activeTab);
@@ -927,42 +986,7 @@
 
     window.addEventListener("resize", () => resizeTabCharts(activeTab));
 
-    async function resetTestData() {
-      const warningText = "هل أنت متأكد؟ هذا سيمسح جميع الطلبات والإيداعات والأرصدة للبدء من الصفر.";
-      const confirmed = window.confirm(warningText);
-      if (!confirmed) return;
-
-      const resetToken = window.prompt("أدخل رمز الأمان RESET_TEST_DATA_TOKEN للتأكيد:");
-      if (!resetToken) {
-        showAlert("تم إلغاء العملية: لم يتم إدخال رمز الأمان.", "error");
-        return;
-      }
-
-      setLoading(true);
-      hideAlert();
-      try {
-        const url = "/api/system/reset-test-data?confirm=RESET_TEST_DATA";
-        const res = await fetch(url, {
-          method: "DELETE",
-          credentials: "same-origin",
-          headers: {
-            "X-Reset-Token": resetToken.trim(),
-          },
-        });
-        const body = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(parseErrorDetail(body));
-
-        showAlert(body.message || "تمت العملية بنجاح. سيتم إعادة تحميل الصفحة…", "success");
-        setTimeout(() => window.location.reload(), 700);
-      } catch (err) {
-        showAlert(err.message || "تعذّر تصفير بيانات الاختبار.", "error");
-      } finally {
-        setLoading(false);
-      }
-    }
-
     els.refreshBtn?.addEventListener("click", loadDashboard);
-    els.resetTestDataBtn?.addEventListener("click", resetTestData);
     loadDashboard();
   })();
 </script>
