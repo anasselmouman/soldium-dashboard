@@ -1,0 +1,41 @@
+{% macro auto_delete_option(prefix) %}
+<div class="auto-delete-option space-y-3 border-t border-slate-800/80 pt-4" data-auto-delete-prefix="{{ prefix }}">
+  <label class="flex items-start gap-3 cursor-pointer group">
+    <input
+      type="checkbox"
+      id="{{ prefix }}-auto-delete-enabled"
+      class="mt-0.5 h-4 w-4 rounded border-slate-600 bg-surface-800 text-accent-500 focus:ring-accent-500 focus:ring-offset-0"
+    />
+    <span class="text-sm text-slate-300 group-hover:text-slate-200 transition">
+      حذف الرسالة تلقائياً بعد مدة محددة
+      <span class="block text-[11px] text-slate-500 font-normal mt-0.5">
+        تُحذف من محادثة المستخدم دون الحاجة لضغط زر إخفاء.
+      </span>
+    </span>
+  </label>
+
+  <div id="{{ prefix }}-auto-delete-fields" class="hidden pl-7 space-y-2">
+    <div class="flex flex-wrap items-center gap-2">
+      <label for="{{ prefix }}-auto-delete-value" class="text-xs text-slate-400 shrink-0">بعد</label>
+      <input
+        type="number"
+        id="{{ prefix }}-auto-delete-value"
+        min="1"
+        max="10080"
+        value="5"
+        class="w-20 rounded-lg border border-slate-600 bg-surface-800 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-accent-500"
+        dir="ltr"
+      />
+      <select
+        id="{{ prefix }}-auto-delete-unit"
+        class="rounded-lg border border-slate-600 bg-surface-800 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-accent-500"
+      >
+        <option value="60" selected>دقيقة</option>
+        <option value="3600">ساعة</option>
+        <option value="1">ثانية</option>
+      </select>
+    </div>
+    <p class="text-[11px] text-slate-500">الحد الأدنى 10 ثوانٍ — الحد الأقصى 7 أيام.</p>
+  </div>
+</div>
+{% endmacro %}

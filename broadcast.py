@@ -1,18 +1,14 @@
 """Telegram broadcast and targeted private messaging."""
 from __future__ import annotations
 
-import asyncio
-
 from admin_log import logger
+from broadcast_engine import deliver_messages_parallel
 from database_connector import get_db
-from notifier import (
-    bot_token_configured,
-    notify_admin_direct_message,
-    send_telegram_notification,
-)
+from message_deletions import validate_auto_delete_seconds
+from notifier import bot_token_configured
 
-BROADCAST_DELAY_SECONDS = 0.05
 MAX_PRIVATE_RECIPIENTS = 100
+
 
 class BroadcastValidationError(Exception):
     def __init__(self, message: str) -> None:
@@ -27,7 +23,24 @@ async def list_all_user_ids() -> list[int]:
     return [int(row[0]) for row in rows]
 
 
-async def send_broadcast(message_html: str) -> dict[str, int | bool]:
+def _validate_auto_delete(auto_delete_seconds: int | None) -> int | None:
+    try:
+        return validate_auto_delete_seconds(auto_delete_seconds)
+    except ValueError as exc:
+        raise BroadcastValidationError(str(exc)) from exc
+
+
+def _admin_message_text(message_html: str) -> str:
+    body = (message_html or "").strip()
+    return f"<b>💬 SOLDIUM | رسالة من الإدارة</b>\n\n{body}"
+
+
+async def send_broadcast(
+    message_html: str,
+    *,
+    auto_delete_seconds: int | None = None,
+    on_progress=None,
+) -> dict[str, int | bool]:
     text = (message_html or "").strip()
     if not text:
         raise BroadcastValidationError("لا يمكن إرسال رسالة فارغة.")
@@ -37,22 +50,16 @@ async def send_broadcast(message_html: str) -> dict[str, int | bool]:
             "لم يتم ضبط BOT_TOKEN — تعذّر إرسال الرسائل عبر تيليغرام.",
         )
 
+    auto_delete_seconds = _validate_auto_delete(auto_delete_seconds)
     user_ids = await list_all_user_ids()
     total = len(user_ids)
-    sent = 0
-    failed = 0
 
-    for user_id in user_ids:
-        try:
-            ok = await send_telegram_notification(user_id, text)
-        except Exception as exc:
-            logger.warning("broadcast user_id=%s unexpected error: %s", user_id, exc)
-            ok = False
-        if ok:
-            sent += 1
-        else:
-            failed += 1
-        await asyncio.sleep(BROADCAST_DELAY_SECONDS)
+    sent, failed = await deliver_messages_parallel(
+        user_ids,
+        text,
+        auto_delete_seconds=auto_delete_seconds,
+        on_progress=on_progress,
+    )
 
     logger.info(
         "BROADCAST completed total_users=%s sent=%s failed=%s",
@@ -88,7 +95,13 @@ async def resolve_user_ids(user_ids: list[int]) -> tuple[list[int], list[int]]:
     return valid, invalid
 
 
-async def send_private_messages(user_ids: list[int], message_html: str) -> dict[str, int | bool | list[int]]:
+async def send_private_messages(
+    user_ids: list[int],
+    message_html: str,
+    *,
+    auto_delete_seconds: int | None = None,
+    on_progress=None,
+) -> dict[str, int | bool | list[int]]:
     text = (message_html or "").strip()
     if not text:
         raise BroadcastValidationError("لا يمكن إرسال رسالة فارغة.")
@@ -97,6 +110,8 @@ async def send_private_messages(user_ids: list[int], message_html: str) -> dict[
         raise BroadcastValidationError(
             "لم يتم ضبط BOT_TOKEN — تعذّر إرسال الرسائل عبر تيليغرام.",
         )
+
+    auto_delete_seconds = _validate_auto_delete(auto_delete_seconds)
 
     if len(user_ids) > MAX_PRIVATE_RECIPIENTS:
         raise BroadcastValidationError(
@@ -108,20 +123,12 @@ async def send_private_messages(user_ids: list[int], message_html: str) -> dict[
         raise BroadcastValidationError("لا يوجد أي مستلم صالح من بين المعرّفات المحددة.")
 
     total = len(valid_ids)
-    sent = 0
-    failed = 0
-
-    for user_id in valid_ids:
-        try:
-            ok = await notify_admin_direct_message(user_id, text)
-        except Exception as exc:
-            logger.warning("private message user_id=%s unexpected error: %s", user_id, exc)
-            ok = False
-        if ok:
-            sent += 1
-        else:
-            failed += 1
-        await asyncio.sleep(BROADCAST_DELAY_SECONDS)
+    sent, failed = await deliver_messages_parallel(
+        valid_ids,
+        _admin_message_text(text),
+        auto_delete_seconds=auto_delete_seconds,
+        on_progress=on_progress,
+    )
 
     logger.info(
         "PRIVATE_MESSAGE completed recipients=%s sent=%s failed=%s invalid=%s",

@@ -1,0 +1,390 @@
+{% extends "base.html" %}
+
+{% block title %}{{ page_title }} — إشعارات الأدمن{% endblock %}
+
+{% block header_actions %}
+<button id="mark-all-read-btn" type="button" class="hidden rounded-lg border border-slate-600 bg-surface-800 px-3 py-2 text-xs font-medium text-slate-200 hover:bg-surface-700 transition">
+  تعليم الكل كمقروء
+</button>
+<button id="refresh-btn" type="button" class="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-surface-800 px-3 py-2 text-sm font-medium text-slate-200 hover:bg-surface-700 transition disabled:opacity-50">
+  <svg id="refresh-icon" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+    <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v6h6M20 20v-6h-6M5 19a9 9 0 0114-7.5M19 5a9 9 0 00-14 7.5" />
+  </svg>
+  تحديث
+</button>
+{% endblock %}
+
+{% block content %}
+<section class="space-y-6">
+  <div id="alert" class="hidden rounded-lg border px-4 py-3 text-sm" role="alert"></div>
+
+  <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+    <article class="soldium-cut-card p-5">
+      <p class="text-xs uppercase tracking-wider text-slate-500">غير مقروء</p>
+      <p id="kpi-unread" class="mt-2 text-3xl font-bold text-red-300 tabular-nums">—</p>
+    </article>
+    <article class="soldium-cut-card p-5">
+      <p class="text-xs uppercase tracking-wider text-slate-500">اليوم</p>
+      <p id="kpi-today" class="mt-2 text-3xl font-bold text-accent-400 tabular-nums">—</p>
+    </article>
+    <article class="soldium-cut-card p-5">
+      <p class="text-xs uppercase tracking-wider text-slate-500">حرج غير مقروء</p>
+      <p id="kpi-critical" class="mt-2 text-3xl font-bold text-amber-300 tabular-nums">—</p>
+    </article>
+  </div>
+
+  <div class="flex flex-wrap gap-2" id="category-chips"></div>
+
+  <div class="flex flex-wrap gap-2 border-b border-slate-800 pb-1">
+    <button type="button" data-tab="all" class="notify-tab notify-tab--active px-4 py-2 text-sm font-medium rounded-t-lg">الكل</button>
+    <button type="button" data-tab="unread" class="notify-tab px-4 py-2 text-sm font-medium rounded-t-lg text-slate-400 hover:text-slate-200">غير مقروء</button>
+    <button type="button" data-tab="critical" class="notify-tab px-4 py-2 text-sm font-medium rounded-t-lg text-slate-400 hover:text-slate-200">حرج</button>
+  </div>
+
+  <div class="flex flex-col lg:flex-row gap-3 lg:items-end">
+    <div class="flex-1">
+      <label for="search-input" class="block text-xs font-medium text-slate-400 mb-1">بحث</label>
+      <input id="search-input" type="search" placeholder="عنوان، نص، معرف مستخدم، رقم طلب…" class="w-full rounded-lg border border-slate-600 bg-surface-800 px-3 py-2 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-accent-500" />
+    </div>
+    <div>
+      <label for="filter-category" class="block text-xs font-medium text-slate-400 mb-1">النوع</label>
+      <select id="filter-category" class="rounded-lg border border-slate-600 bg-surface-800 px-3 py-2 text-sm text-white min-w-[160px] focus:outline-none focus:ring-2 focus:ring-accent-500">
+        <option value="">كل الأنواع</option>
+      </select>
+    </div>
+    <div>
+      <label for="filter-from" class="block text-xs font-medium text-slate-400 mb-1">من</label>
+      <input id="filter-from" type="date" class="rounded-lg border border-slate-600 bg-surface-800 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-accent-500" />
+    </div>
+    <div>
+      <label for="filter-to" class="block text-xs font-medium text-slate-400 mb-1">إلى</label>
+      <input id="filter-to" type="date" class="rounded-lg border border-slate-600 bg-surface-800 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-accent-500" />
+    </div>
+    <button id="search-btn" type="button" class="rounded-lg bg-accent-600 hover:bg-accent-500 px-4 py-2 text-sm font-medium text-white">بحث</button>
+  </div>
+
+  <div class="rounded-xl border border-slate-800 bg-surface-900 overflow-hidden shadow-xl shadow-black/20">
+    <div id="loading" class="flex items-center justify-center gap-3 py-16 text-slate-400">
+      <svg class="h-5 w-5 animate-spin" viewBox="0 0 24 24" fill="none">
+        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+      </svg>
+      جاري تحميل الإشعارات…
+    </div>
+    <div id="empty-state" class="hidden py-16 text-center text-slate-500">لا توجد إشعارات مطابقة.</div>
+    <ul id="notifications-list" class="hidden divide-y divide-slate-800/80"></ul>
+    <div id="load-more-wrap" class="hidden border-t border-slate-800 p-4 text-center">
+      <button id="load-more-btn" type="button" class="text-sm text-accent-400 hover:text-accent-300">تحميل المزيد</button>
+    </div>
+  </div>
+</section>
+
+<div id="detail-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70">
+  <div class="w-full max-w-lg rounded-xl border border-slate-700 bg-surface-900 shadow-2xl max-h-[90vh] overflow-y-auto">
+    <div class="flex items-start justify-between gap-3 border-b border-slate-800 px-5 py-4">
+      <div>
+        <p id="modal-category" class="text-xs text-slate-500"></p>
+        <h2 id="modal-title" class="text-lg font-semibold text-white mt-1"></h2>
+      </div>
+      <button id="modal-close" type="button" class="text-slate-400 hover:text-white text-xl leading-none" aria-label="إغلاق">×</button>
+    </div>
+    <div id="modal-body" class="px-5 py-4 text-sm text-slate-300 leading-relaxed space-y-3"></div>
+    <div class="flex flex-wrap gap-2 border-t border-slate-800 px-5 py-4">
+      <a id="modal-action" href="#" class="hidden rounded-lg bg-accent-600 hover:bg-accent-500 px-4 py-2 text-sm font-medium text-white">فتح في اللوحة</a>
+      <button id="modal-mark-read" type="button" class="hidden rounded-lg border border-slate-600 px-4 py-2 text-sm text-slate-200 hover:bg-surface-800">تعليم كمقروء</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<style>
+  .notify-tab--active { background: rgba(14, 165, 233, 0.15); color: #7dd3fc; border-bottom: 2px solid #0ea5e9; }
+  .notify-item--unread { border-inline-start: 3px solid #0ea5e9; background: rgba(14, 165, 233, 0.06); }
+  .notify-chip { border: 1px solid #334155; background: rgba(15, 23, 42, 0.6); }
+  .notify-chip--active { border-color: rgba(14, 165, 233, 0.5); background: rgba(14, 165, 233, 0.12); color: #7dd3fc; }
+</style>
+<script>
+  const API = "/api/admin-notifications";
+  const state = { tab: "all", offset: 0, items: [], total: 0, hasMore: false, loading: false, selectedId: null };
+
+  const els = {
+    alert: document.getElementById("alert"),
+    kpiUnread: document.getElementById("kpi-unread"),
+    kpiToday: document.getElementById("kpi-today"),
+    kpiCritical: document.getElementById("kpi-critical"),
+    categoryChips: document.getElementById("category-chips"),
+    filterCategory: document.getElementById("filter-category"),
+    searchInput: document.getElementById("search-input"),
+    filterFrom: document.getElementById("filter-from"),
+    filterTo: document.getElementById("filter-to"),
+    searchBtn: document.getElementById("search-btn"),
+    loading: document.getElementById("loading"),
+    empty: document.getElementById("empty-state"),
+    list: document.getElementById("notifications-list"),
+    loadMoreWrap: document.getElementById("load-more-wrap"),
+    loadMoreBtn: document.getElementById("load-more-btn"),
+    refreshBtn: document.getElementById("refresh-btn"),
+    refreshIcon: document.getElementById("refresh-icon"),
+    markAllReadBtn: document.getElementById("mark-all-read-btn"),
+    modal: document.getElementById("detail-modal"),
+    modalCategory: document.getElementById("modal-category"),
+    modalTitle: document.getElementById("modal-title"),
+    modalBody: document.getElementById("modal-body"),
+    modalAction: document.getElementById("modal-action"),
+    modalMarkRead: document.getElementById("modal-mark-read"),
+    modalClose: document.getElementById("modal-close"),
+  };
+
+  function showAlert(message, type = "error") {
+    els.alert.textContent = message;
+    els.alert.className = type === "success"
+      ? "rounded-lg border border-emerald-900/60 bg-emerald-950/40 px-4 py-3 text-sm text-emerald-200"
+      : "rounded-lg border border-red-900/60 bg-red-950/40 px-4 py-3 text-sm text-red-200";
+    els.alert.classList.remove("hidden");
+  }
+
+  function hideAlert() { els.alert.classList.add("hidden"); }
+
+  function parseErrorDetail(body) {
+    if (!body) return "خطأ غير معروف";
+    if (typeof body.detail === "string") return body.detail;
+    if (body.detail?.message) return body.detail.message;
+    return "تعذّر إتمام الطلب.";
+  }
+
+  function formatDate(value) {
+    if (!value) return "—";
+    const n = String(value).includes("T") ? value : String(value).replace(" ", "T");
+    const dt = new Date(n.includes("Z") || n.includes("+") ? n : n + "Z");
+    if (Number.isNaN(dt.getTime())) return value;
+    return dt.toLocaleString("ar-MA", { dateStyle: "medium", timeStyle: "short" });
+  }
+
+  function severityClass(sev) {
+    if (sev === "critical") return "text-red-300 bg-red-950/40 border-red-900/50";
+    if (sev === "warning") return "text-amber-300 bg-amber-950/30 border-amber-900/50";
+    return "text-sky-300 bg-sky-950/30 border-sky-900/50";
+  }
+
+  function buildQueryParams(append) {
+    const p = new URLSearchParams();
+    p.set("limit", "30");
+    p.set("offset", String(state.offset));
+    if (state.tab === "unread") p.set("unread_only", "true");
+    if (state.tab === "critical") {
+      p.set("unread_only", "true");
+      p.set("severity", "critical");
+    }
+    const cat = els.filterCategory.value.trim();
+    if (cat) p.set("category", cat);
+    const q = els.searchInput.value.trim();
+    if (q) p.set("search", q);
+    if (els.filterFrom.value) p.set("from_date", els.filterFrom.value);
+    if (els.filterTo.value) p.set("to_date", els.filterTo.value);
+    return p.toString();
+  }
+
+  async function loadSummary() {
+    const res = await fetch(`${API}/summary`, { credentials: "same-origin" });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(parseErrorDetail(body));
+    els.kpiUnread.textContent = (body.unread_count ?? 0).toLocaleString("ar-MA");
+    els.kpiToday.textContent = (body.today_count ?? 0).toLocaleString("ar-MA");
+    els.kpiCritical.textContent = (body.critical_unread ?? 0).toLocaleString("ar-MA");
+    els.markAllReadBtn.classList.toggle("hidden", !(body.unread_count > 0));
+    if (typeof window.updateNavNotificationsBadge === "function") {
+      window.updateNavNotificationsBadge(body.unread_count ?? 0);
+    }
+    populateCategoryFilters(body.categories || [], body.unread_by_category || []);
+    return body;
+  }
+
+  function populateCategoryFilters(categories, unreadByCategory) {
+    const counts = Object.fromEntries((unreadByCategory || []).map((c) => [c.category, c.count]));
+    if (!els.filterCategory.dataset.filled) {
+      categories.forEach((c) => {
+        const opt = document.createElement("option");
+        opt.value = c.key;
+        opt.textContent = `${c.icon || ""} ${c.label}`.trim();
+        els.filterCategory.appendChild(opt);
+      });
+      els.filterCategory.dataset.filled = "1";
+    }
+    els.categoryChips.innerHTML = (unreadByCategory || [])
+      .filter((c) => c.count > 0)
+      .map(
+        (c) =>
+          `<button type="button" data-chip-category="${c.category}" class="notify-chip rounded-full px-3 py-1 text-xs font-medium text-slate-300 hover:border-accent-500/40 transition">` +
+          `${c.icon || "🔔"} ${c.label} <span class="text-accent-400 font-bold">${c.count}</span></button>`
+      )
+      .join("");
+  }
+
+  function renderList() {
+    const items = state.items;
+    if (!items.length) {
+      els.list.classList.add("hidden");
+      els.empty.classList.remove("hidden");
+      els.loadMoreWrap.classList.add("hidden");
+      return;
+    }
+    els.empty.classList.add("hidden");
+    els.list.classList.remove("hidden");
+    els.list.innerHTML = items
+      .map((item) => {
+        const unread = !item.is_read;
+        const sev = severityClass(item.severity);
+        return (
+          `<li class="notify-item ${unread ? "notify-item--unread" : ""} px-4 py-4 hover:bg-surface-800/50 cursor-pointer transition" data-id="${item.id}">` +
+          `<div class="flex flex-wrap items-start justify-between gap-2">` +
+          `<div class="flex items-start gap-3 min-w-0">` +
+          `<span class="text-xl shrink-0">${item.category_icon || "🔔"}</span>` +
+          `<div class="min-w-0">` +
+          `<p class="font-medium text-slate-100 truncate">${item.title}</p>` +
+          `<p class="text-xs text-slate-500 mt-0.5">${item.category_label} · ${formatDate(item.created_at)}</p>` +
+          `<p class="text-sm text-slate-400 mt-1 line-clamp-2">${item.body_plain || ""}</p>` +
+          `</div></div>` +
+          `<span class="shrink-0 rounded border px-2 py-0.5 text-[10px] font-semibold uppercase ${sev}">${item.severity_label}</span>` +
+          `</div>` +
+          `${!item.telegram_sent ? '<p class="mt-2 text-[11px] text-amber-400/90">لم يُرسَل عبر تيليغرام</p>' : ""}` +
+          `</li>`
+        );
+      })
+      .join("");
+    els.loadMoreWrap.classList.toggle("hidden", !state.hasMore);
+  }
+
+  async function loadNotifications(reset) {
+    if (state.loading) return;
+    state.loading = true;
+    if (reset) {
+      state.offset = 0;
+      state.items = [];
+      els.loading.classList.remove("hidden");
+      els.list.classList.add("hidden");
+      els.empty.classList.add("hidden");
+    }
+    els.refreshBtn.disabled = true;
+    els.refreshIcon.classList.add("animate-spin");
+    try {
+      const res = await fetch(`${API}?${buildQueryParams()}`, { credentials: "same-origin" });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(parseErrorDetail(body));
+      const newItems = body.items || [];
+      state.items = reset ? newItems : state.items.concat(newItems);
+      state.total = body.total ?? 0;
+      state.hasMore = !!body.has_more;
+      state.offset = state.items.length;
+      renderList();
+    } catch (err) {
+      showAlert(err.message || "تعذّر تحميل الإشعارات.");
+    } finally {
+      els.loading.classList.add("hidden");
+      els.refreshBtn.disabled = false;
+      els.refreshIcon.classList.remove("animate-spin");
+      state.loading = false;
+    }
+  }
+
+  async function openDetail(id) {
+    const res = await fetch(`${API}/${id}`, { credentials: "same-origin" });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(parseErrorDetail(body));
+    const item = body.notification;
+    state.selectedId = item.id;
+    els.modalCategory.textContent = `${item.category_icon} ${item.category_label} · ${formatDate(item.created_at)}`;
+    els.modalTitle.textContent = item.title;
+    els.modalBody.innerHTML = item.body_html || `<p>${item.body_plain || ""}</p>`;
+    if (item.user_id) {
+      els.modalBody.insertAdjacentHTML(
+        "beforeend",
+        `<p class="text-xs text-slate-500">المستخدم: <code>${item.user_id}</code></p>`
+      );
+    }
+    if (item.telegram_error) {
+      els.modalBody.insertAdjacentHTML(
+        "beforeend",
+        `<p class="text-xs text-amber-400">خطأ تيليغرام: ${item.telegram_error}</p>`
+      );
+    }
+    if (item.action_url) {
+      els.modalAction.href = item.action_url;
+      els.modalAction.classList.remove("hidden");
+    } else {
+      els.modalAction.classList.add("hidden");
+    }
+    els.modalMarkRead.classList.toggle("hidden", item.is_read);
+    els.modal.classList.remove("hidden");
+    if (!item.is_read) {
+      await fetch(`${API}/${id}/read`, { method: "POST", credentials: "same-origin" });
+      const row = state.items.find((i) => i.id === id);
+      if (row) row.is_read = true;
+      renderList();
+      await loadSummary();
+    }
+  }
+
+  function closeModal() {
+    els.modal.classList.add("hidden");
+    state.selectedId = null;
+  }
+
+  async function refreshAll() {
+    hideAlert();
+    await loadSummary();
+    await loadNotifications(true);
+  }
+
+  document.querySelectorAll(".notify-tab").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".notify-tab").forEach((b) => {
+        b.classList.remove("notify-tab--active", "text-slate-200");
+        b.classList.add("text-slate-400");
+      });
+      btn.classList.add("notify-tab--active");
+      btn.classList.remove("text-slate-400");
+      state.tab = btn.dataset.tab || "all";
+      loadNotifications(true);
+    });
+  });
+
+  els.categoryChips.addEventListener("click", (e) => {
+    const chip = e.target.closest("[data-chip-category]");
+    if (!chip) return;
+    els.filterCategory.value = chip.dataset.chipCategory || "";
+    loadNotifications(true);
+  });
+
+  els.searchBtn.addEventListener("click", () => loadNotifications(true));
+  els.searchInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") loadNotifications(true);
+  });
+  els.list.addEventListener("click", (e) => {
+    const row = e.target.closest("[data-id]");
+    if (!row) return;
+    openDetail(Number(row.dataset.id)).catch((err) => showAlert(err.message));
+  });
+  els.loadMoreBtn.addEventListener("click", () => loadNotifications(false));
+  els.refreshBtn.addEventListener("click", refreshAll);
+  els.modalClose.addEventListener("click", closeModal);
+  els.modal.addEventListener("click", (e) => { if (e.target === els.modal) closeModal(); });
+  els.modalMarkRead.addEventListener("click", async () => {
+    if (!state.selectedId) return;
+    await fetch(`${API}/${state.selectedId}/read`, { method: "POST", credentials: "same-origin" });
+    closeModal();
+    await refreshAll();
+  });
+  els.markAllReadBtn.addEventListener("click", async () => {
+    try {
+      await fetch(`${API}/read-all`, { method: "POST", credentials: "same-origin" });
+      await refreshAll();
+      showAlert("تم تعليم جميع الإشعارات كمقروءة.", "success");
+    } catch (err) {
+      showAlert(err.message || "تعذّر التحديث.");
+    }
+  });
+
+  refreshAll();
+</script>
+{% endblock %}

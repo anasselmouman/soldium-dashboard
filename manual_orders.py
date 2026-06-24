@@ -8,7 +8,6 @@ from typing import Any
 import aiosqlite
 
 from admin_log import logger
-from config import SMM_API_KEYS, SMM_KEY_DEFAULT
 from database_connector import (
     DatabaseLockedError,
     DatabaseWriteError,
@@ -31,8 +30,8 @@ from utils.order_status import normalize_order_status_key
 from services.smm_provider import (
     ProviderUnavailableError,
     submit_provider_order,
-    _key_valid,
 )
+from services.provider_registry import get_default_provider_slug
 
 DEFAULT_PAGE_SIZE = 50
 MAX_PAGE_SIZE = 100
@@ -186,7 +185,7 @@ def _row_to_manual_order(row: aiosqlite.Row, *, include_note: bool = False) -> d
 
 def _resolve_api_account(api_account: str | None) -> str:
     account = str(api_account or "default").strip().lower()
-    if account == "admin" or account not in SMM_API_KEYS:
+    if account == "admin" or not account:
         return "default"
     return account
 
@@ -202,6 +201,47 @@ async def _persist_provider_order_id(order_id: int, provider_ref: str) -> None:
         )
 
 
+async def _lookup_service_provider_meta(catalog_item_id: str) -> dict[str, str] | None:
+    item_id = str(catalog_item_id or "").strip()
+    if not item_id:
+        return None
+    async with get_db() as db:
+        try:
+            async with db.execute(
+                """
+                SELECT external_service_id, provider_slug, provider_api_account
+                FROM smm_services
+                WHERE catalog_id = ? OR local_item_id = ?
+                LIMIT 1
+                """,
+                (item_id, item_id),
+            ) as cursor:
+                row = await cursor.fetchone()
+        except sqlite3.OperationalError:
+            async with db.execute(
+                """
+                SELECT service_id AS external_service_id, provider_slug, provider_api_account
+                FROM smm_services
+                WHERE service_id = ? OR local_item_id = ?
+                LIMIT 1
+                """,
+                (item_id, item_id),
+            ) as cursor:
+                row = await cursor.fetchone()
+    if row is None:
+        return None
+    external_id = str(row["external_service_id"] or "").strip()
+    if not external_id.isdigit():
+        return None
+    slug = str(row["provider_slug"] or get_default_provider_slug()).strip().lower()
+    account = str(row["provider_api_account"] or "default").strip().lower() or "default"
+    return {
+        "external_service_id": external_id,
+        "provider_slug": slug,
+        "account_key": account,
+    }
+
+
 async def ensure_provider_order_ref(order: dict[str, Any]) -> str | None:
     """
     Return distributor order id for a manual order.
@@ -212,29 +252,32 @@ async def ensure_provider_order_ref(order: dict[str, Any]) -> str | None:
         return existing
 
     order_id = int(order["id"])
-    service_id_raw = str(order.get("service_id") or "").strip()
+    catalog_item_id = str(order.get("service_id") or "").strip()
     link = str(order.get("link") or "").strip()
-    if not service_id_raw.isdigit() or not link:
+    if not catalog_item_id or not link:
         logger.warning(
             "ensure_provider_order_ref missing service/link order_id=%s",
             order_id,
         )
         return None
 
-    account = _resolve_api_account(order.get("api_account"))
-    api_key = SMM_API_KEYS.get(account) or SMM_KEY_DEFAULT
-    if not _key_valid(api_key):
+    meta = await _lookup_service_provider_meta(catalog_item_id)
+    if meta is None:
         logger.warning(
-            "ensure_provider_order_ref no api key order_id=%s account=%s",
+            "ensure_provider_order_ref catalog lookup failed order_id=%s item=%s",
             order_id,
-            account,
+            catalog_item_id,
         )
         return None
 
+    provider_slug = str(order.get("provider_slug") or meta["provider_slug"]).strip().lower()
+    account = _resolve_api_account(order.get("api_account") or meta["account_key"])
+
     try:
         provider_ref = await submit_provider_order(
-            api_key=api_key,
-            service_id=int(service_id_raw),
+            provider_slug=provider_slug,
+            account_key=account,
+            service_id=int(meta["external_service_id"]),
             link=link,
             quantity=int(order.get("quantity") or 1),
         )

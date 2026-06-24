@@ -1,6 +1,7 @@
 """Send user-facing Telegram messages via the Bot API (dashboard → user)."""
 from __future__ import annotations
 
+import asyncio
 import html
 import logging
 import os
@@ -86,6 +87,8 @@ async def send_timed_announcement(
     user_id: int,
     announcement_id: int,
     message_html: str,
+    *,
+    auto_delete_seconds: int | None = None,
 ) -> bool:
     """Send a timed announcement — dismiss button only removes the chat message."""
     if not _token_configured():
@@ -110,10 +113,24 @@ async def send_timed_announcement(
             sent = await _telegram_post(session, "sendMessage", payload)
             if not sent:
                 return False
+
+            if auto_delete_seconds is not None:
+                result = sent.get("result") or {}
+                message_id = result.get("message_id")
+                if message_id is not None:
+                    from message_deletions import schedule_message_deletion
+
+                    await schedule_message_deletion(
+                        chat_id,
+                        int(message_id),
+                        auto_delete_seconds,
+                    )
+
         logger.info(
-            "Timed announcement id=%s sent to user_id=%s",
+            "Timed announcement id=%s sent to user_id=%s auto_delete=%s",
             announcement_id,
             user_id,
+            auto_delete_seconds,
         )
         return True
     except aiohttp.ClientError as exc:
@@ -136,6 +153,31 @@ async def send_timed_announcement(
 def _format_dh(amount: float) -> str:
     text = f"{amount:.6f}".rstrip("0").rstrip(".")
     return text or "0"
+
+
+async def register_pending_notifications_batch(
+    items: list[tuple[int, int, int]],
+) -> None:
+    """Batch-register pending notifications — one DB connection per flush."""
+    if not items:
+        return
+    try:
+        async with get_db() as db:
+            for user_id, _chat_id, _message_id in items:
+                await db.execute(
+                    "INSERT OR IGNORE INTO users (user_id) VALUES (?)",
+                    (user_id,),
+                )
+            await db.executemany(
+                """
+                INSERT OR REPLACE INTO pending_notifications (user_id, chat_id, message_id)
+                VALUES (?, ?, ?)
+                """,
+                items,
+            )
+            await db.commit()
+    except Exception as exc:
+        logger.warning("Failed to batch-register pending notifications: %s", exc)
 
 
 async def _register_pending_notification(
@@ -171,19 +213,67 @@ async def _telegram_post(
     session: aiohttp.ClientSession,
     method: str,
     payload: dict[str, Any],
+    *,
+    _rate_limit_attempt: int = 0,
 ) -> dict[str, Any] | None:
     async with session.post(_api_url(method), json=payload) as response:
         body = await response.json(content_type=None)
-        if response.status == 200 and isinstance(body, dict) and body.get("ok"):
-            return body
-        description = body.get("description", body) if isinstance(body, dict) else body
-        logger.warning("Telegram %s failed: %s", method, description)
-        return None
+
+    if response.status == 429 and _rate_limit_attempt < 5:
+        retry_after = 2.0
+        if isinstance(body, dict):
+            params = body.get("parameters") or {}
+            if isinstance(params, dict) and params.get("retry_after"):
+                retry_after = float(params["retry_after"])
+        wait = min(max(retry_after, 0.5), 30.0)
+        logger.warning(
+            "Telegram rate limit on %s — waiting %.1fs",
+            method,
+            wait,
+        )
+        await asyncio.sleep(wait)
+        return await _telegram_post(
+            session,
+            method,
+            payload,
+            _rate_limit_attempt=_rate_limit_attempt + 1,
+        )
+
+    if response.status == 200 and isinstance(body, dict) and body.get("ok"):
+        return body
+    description = body.get("description", body) if isinstance(body, dict) else body
+    logger.warning("Telegram %s failed: %s", method, description)
+    return None
 
 
-async def send_telegram_notification(user_id: int, text: str) -> bool:
+async def delete_telegram_message(chat_id: int, message_id: int) -> bool:
+    """Delete a message via Bot API. Returns True on success or if already gone."""
+    if not _token_configured():
+        return False
+    payload = {"chat_id": chat_id, "message_id": message_id}
+    try:
+        async with aiohttp.ClientSession(timeout=_REQUEST_TIMEOUT) as session:
+            result = await _telegram_post(session, "deleteMessage", payload)
+        return result is not None
+    except Exception as exc:
+        logger.debug(
+            "deleteMessage chat_id=%s message_id=%s: %s",
+            chat_id,
+            message_id,
+            exc,
+        )
+        return False
+
+
+async def send_telegram_notification(
+    user_id: int,
+    text: str,
+    *,
+    auto_delete_seconds: int | None = None,
+) -> bool:
     """
     Send a smart notification: message + dismiss button + pending_notifications row.
+    When auto_delete_seconds is set, skip pending_notifications and schedule deletion.
     Failures are logged; callers keep HTTP success.
     """
     if not _token_configured():
@@ -228,11 +318,18 @@ async def send_telegram_notification(user_id: int, text: str) -> bool:
                 },
             )
 
-        await _register_pending_notification(user_id, chat_id, message_id)
+        if auto_delete_seconds is not None:
+            from message_deletions import schedule_message_deletion
+
+            await schedule_message_deletion(chat_id, message_id, auto_delete_seconds)
+        else:
+            await _register_pending_notification(user_id, chat_id, message_id)
+
         logger.info(
-            "Smart notification sent to user_id=%s (message_id=%s)",
+            "Smart notification sent to user_id=%s (message_id=%s auto_delete=%s)",
             user_id,
             message_id,
+            auto_delete_seconds,
         )
         return True
     except aiohttp.ClientError as exc:
@@ -375,11 +472,67 @@ async def notify_manual_order_completed(
     return await send_telegram_notification(user_id, text)
 
 
-async def notify_admin_direct_message(user_id: int, message_html: str) -> bool:
+async def notify_admin_system_alert(
+    title: str,
+    message: str,
+    *,
+    message_html: str | None = None,
+) -> bool:
+    """Send a critical dashboard alert to the admin Telegram chat."""
+    from admin_notifications import record_admin_notification
+    from config import ADMIN_TELEGRAM_ID
+
+    title_clean = (title or "").strip() or "تحذير نظام"
+    title_html = html.escape(title_clean)
+
+    if not ADMIN_TELEGRAM_ID:
+        logger.warning("ADMIN_ID not configured — skipping admin system alert")
+        body_for_log = message_html or (message or "").strip()
+        await record_admin_notification(
+            category="system_alert",
+            title=title_clean,
+            body_html=body_for_log,
+            severity="critical",
+            source="dashboard",
+            channel="dashboard",
+            telegram_sent=False,
+            telegram_error="ADMIN_ID not configured",
+        )
+        return False
+
+    if message_html:
+        text = f"<b>⚠️ SOLDIUM | {title_html}</b>\n\n{message_html}"
+    else:
+        body_html = html.escape((message or "").strip())
+        text = f"<b>⚠️ SOLDIUM | {title_html}</b>\n\n{body_html}"
+    sent = await send_telegram_notification(ADMIN_TELEGRAM_ID, text)
+    await record_admin_notification(
+        category="system_alert",
+        title=title_clean,
+        body_html=text,
+        severity="critical",
+        source="dashboard",
+        channel="telegram",
+        telegram_sent=sent,
+        telegram_error=None if sent else "Telegram send failed",
+    )
+    return sent
+
+
+async def notify_admin_direct_message(
+    user_id: int,
+    message_html: str,
+    *,
+    auto_delete_seconds: int | None = None,
+) -> bool:
     """Admin-composed HTML message without order context."""
     body = (message_html or "").strip()
     text = f"<b>💬 SOLDIUM | رسالة من الإدارة</b>\n\n{body}"
-    return await send_telegram_notification(user_id, text)
+    return await send_telegram_notification(
+        user_id,
+        text,
+        auto_delete_seconds=auto_delete_seconds,
+    )
 
 
 async def notify_manual_order_customer_message(

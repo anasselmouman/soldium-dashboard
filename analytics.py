@@ -2,13 +2,12 @@
 from __future__ import annotations
 from typing import Any
 from database_connector import get_db
-from settings import PARTIAL_PROVIDER_USD_TO_DH, SERVICE_USD_TO_DH_MULTIPLIER
+from settings import SERVICE_USD_TO_DH_MULTIPLIER
 from smm_services import DEFAULT_MARKUP_MULTIPLIER
 from utils.order_status import normalize_order_status_key
 _CASHFLOW_DAYS = 30
 _USD_TO_DH = SERVICE_USD_TO_DH_MULTIPLIER
 _MARKUP = DEFAULT_MARKUP_MULTIPLIER
-_PARTIAL_USD_TO_DH = PARTIAL_PROVIDER_USD_TO_DH
 _ORDER_NET_SALES = (
     "MAX(0, COALESCE(o.amount, 0) - COALESCE(o.refunded_amount, 0))"
 )
@@ -54,25 +53,34 @@ _FULL_PROVIDER_COST = f"""
         ELSE 0
     END
 """
+_BASE_ORDER_PROVIDER_COST = f"""
+    CASE
+        WHEN COALESCE(o.provider_cost_dh, 0) > 0 THEN COALESCE(o.provider_cost_dh, 0)
+        ELSE ({_FULL_PROVIDER_COST})
+    END
+"""
 _ORDER_PROVIDER_COST = f"""(
     CASE
         WHEN {_ORDER_STATUS_KEY} = 'partial'
              AND COALESCE(r.actual_provider_usd, 0) > 0
-            THEN r.actual_provider_usd * {_PARTIAL_USD_TO_DH}
+            THEN r.actual_provider_usd * {_USD_TO_DH}
         WHEN {_ORDER_STATUS_KEY} = 'partial'
              AND COALESCE(o.amount, 0) > 0
              AND COALESCE(o.refunded_amount, 0) > 0
-            THEN ({_FULL_PROVIDER_COST}) * (
+            THEN ({_BASE_ORDER_PROVIDER_COST}) * (
                 MAX(
                     0.0,
                     (COALESCE(o.amount, 0) - COALESCE(o.refunded_amount, 0))
                     / COALESCE(o.amount, 0)
                 )
             )
-        ELSE {_FULL_PROVIDER_COST}
+        ELSE {_BASE_ORDER_PROVIDER_COST}
     END
 )"""
-_ORDER_NET_PROFIT = f"({_ORDER_NET_SALES} - {_ORDER_PROVIDER_COST})"
+_ORDER_REFERRAL_COST = "COALESCE(o.referral_commission_amount, 0)"
+_ORDER_NET_PROFIT = (
+    f"({_ORDER_NET_SALES} - {_ORDER_PROVIDER_COST} - {_ORDER_REFERRAL_COST})"
+)
 _PROFIT_ORDERS_FROM = """
     FROM orders AS o
     LEFT JOIN smm_services AS s ON s.rowid = COALESCE(
@@ -80,6 +88,17 @@ _PROFIT_ORDERS_FROM = """
             SELECT s2.rowid
             FROM smm_services AS s2
             WHERE TRIM(CAST(o.service_id AS TEXT)) = TRIM(CAST(s2.local_item_id AS TEXT))
+              AND LOWER(COALESCE(NULLIF(TRIM(o.provider_slug), ''), 'gozibra'))
+                  = LOWER(COALESCE(NULLIF(TRIM(s2.provider_slug), ''), 'gozibra'))
+            ORDER BY s2.rowid
+            LIMIT 1
+        ),
+        (
+            SELECT s2.rowid
+            FROM smm_services AS s2
+            WHERE TRIM(CAST(o.service_id AS TEXT)) = TRIM(CAST(s2.catalog_id AS TEXT))
+              AND LOWER(COALESCE(NULLIF(TRIM(o.provider_slug), ''), 'gozibra'))
+                  = LOWER(COALESCE(NULLIF(TRIM(s2.provider_slug), ''), 'gozibra'))
             ORDER BY s2.rowid
             LIMIT 1
         ),
@@ -87,6 +106,8 @@ _PROFIT_ORDERS_FROM = """
             SELECT s2.rowid
             FROM smm_services AS s2
             WHERE TRIM(CAST(o.service_id AS TEXT)) = TRIM(CAST(s2.service_id AS TEXT))
+              AND LOWER(COALESCE(NULLIF(TRIM(o.provider_slug), ''), 'gozibra'))
+                  = LOWER(COALESCE(NULLIF(TRIM(s2.provider_slug), ''), 'gozibra'))
             ORDER BY s2.rowid
             LIMIT 1
         )
@@ -238,14 +259,16 @@ async def get_profit_chart() -> dict[str, list[Any]]:
     Profit engine for the last 30 days.
 
     Per executed order (completed / partial):
-    - sales = platform selling price net of refunds (amount − refunded_amount)
-    - costs = provider catalog cost only
-    - net profit = sales − costs
+    - sales = amount − refunded_amount
+    - provider costs = snapshot provider_cost_dh أو كتالوج المورد
+    - referral costs = referral_commission_amount
+    - net profit = sales − provider costs − referral costs
     """
     sql = f"""
         SELECT {_ORDER_DATE_EXPR} AS day_key,
                COALESCE(SUM({_ORDER_NET_SALES}), 0) AS daily_sales,
                COALESCE(SUM({_ORDER_PROVIDER_COST}), 0) AS daily_costs,
+               COALESCE(SUM({_ORDER_REFERRAL_COST}), 0) AS daily_referral,
                COALESCE(SUM({_ORDER_NET_PROFIT}), 0) AS daily_net_profit
         {_PROFIT_ORDERS_FROM}
         WHERE {_ORDER_DATE_EXPR} >= {_CASHFLOW_CUTOFF}
@@ -257,24 +280,47 @@ async def get_profit_chart() -> dict[str, list[Any]]:
         async with db.execute(sql) as cursor:
             rows = await cursor.fetchall()
         day_keys = await _local_day_keys(db, _CASHFLOW_DAYS)
+        quality = await _profit_data_quality(db)
     sales_by_day = {str(r[0]): _float_or_zero(r[1]) for r in rows if r[0]}
     costs_by_day = {str(r[0]): _float_or_zero(r[2]) for r in rows if r[0]}
+    referral_by_day = {str(r[0]): _float_or_zero(r[3]) for r in rows if r[0]}
+    profit_by_day = {str(r[0]): _float_or_zero(r[4]) for r in rows if r[0]}
     sales = [round(sales_by_day.get(d, 0.0), 2) for d in day_keys]
     costs = [round(costs_by_day.get(d, 0.0), 2) for d in day_keys]
-    net_profit = [round(s - c, 2) for s, c in zip(sales, costs)]
+    referral_costs = [round(referral_by_day.get(d, 0.0), 2) for d in day_keys]
+    net_profit = [round(profit_by_day.get(d, 0.0), 2) for d in day_keys]
     total_sales = round(sum(sales), 2)
     total_costs = round(sum(costs), 2)
+    total_referral = round(sum(referral_costs), 2)
     return {
         "dates": day_keys,
         "sales": sales,
         "costs": costs,
+        "referral_costs": referral_costs,
         "net_profit": net_profit,
         "totals": {
             "sales_dh": total_sales,
             "costs_dh": total_costs,
-            "net_profit_dh": round(total_sales - total_costs, 2),
+            "referral_commissions_dh": total_referral,
+            "net_profit_dh": round(total_sales - total_costs - total_referral, 2),
         },
+        "data_quality": quality,
     }
+
+
+async def _profit_data_quality(db: Any) -> dict[str, int]:
+    """طلبات منفّذة بدون تكلفة مورد محسوبة (آخر 30 يوم)."""
+    sql = f"""
+        SELECT COUNT(*)
+        {_PROFIT_ORDERS_FROM}
+        WHERE {_ORDER_DATE_EXPR} >= {_CASHFLOW_CUTOFF}
+          AND {_PROFIT_STATUS_FILTER}
+          AND ({_ORDER_PROVIDER_COST}) <= 0.000001
+    """
+    async with db.execute(sql) as cursor:
+        row = await cursor.fetchone()
+    zero_cost_orders = int(row[0] or 0) if row else 0
+    return {"zero_provider_cost_orders": zero_cost_orders}
 async def get_orders_status_chart() -> dict[str, list[Any]]:
     """Phase 4 — توزيع حالات الطلبات."""
     async with get_db() as db:

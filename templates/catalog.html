@@ -24,6 +24,15 @@
   <div class="soldium-cut-card p-4">
     <div class="flex flex-col gap-4 lg:flex-row lg:flex-wrap lg:items-end">
       <div class="flex-1 min-w-[200px]">
+        <label for="providerFilter" class="block text-xs font-medium text-slate-400 mb-1.5">المزوّد</label>
+        <select
+          id="providerFilter"
+          class="w-full rounded-lg border border-slate-600 bg-surface-800 px-3 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-accent-500"
+        >
+          <option value="">جميع المزوّدين</option>
+        </select>
+      </div>
+      <div class="flex-1 min-w-[200px]">
         <label for="platformFilter" class="block text-xs font-medium text-slate-400 mb-1.5">المنصة</label>
         <select
           id="platformFilter"
@@ -84,11 +93,13 @@
         <table class="min-w-full text-sm text-start">
           <thead class="bg-surface-800/80 text-xs uppercase tracking-wider text-slate-400 sticky top-0 z-10">
             <tr>
+              <th class="px-3 py-3 font-medium">المزوّد</th>
               <th class="px-3 py-3 font-medium">معرّف المزوّد</th>
               <th class="px-3 py-3 font-medium min-w-[220px]">الخدمة</th>
               <th class="px-3 py-3 font-medium">الحدود</th>
               <th class="px-3 py-3 font-medium">سعر المزوّد</th>
               <th class="px-3 py-3 font-medium">السعر في البوت</th>
+              <th class="px-3 py-3 font-medium">الهامش (تقريبي)</th>
               <th class="px-3 py-3 font-medium text-center">مفعّلة</th>
             </tr>
           </thead>
@@ -141,6 +152,7 @@
     activeCount: 0,
     inactiveCount: 0,
     platform: "",
+    provider: "",
     search: "",
     platforms: [],
   };
@@ -155,6 +167,7 @@
     statActive: document.getElementById("stat-active"),
     statInactive: document.getElementById("stat-inactive"),
     platformFilter: document.getElementById("platformFilter"),
+    providerFilter: document.getElementById("providerFilter"),
     searchInput: document.getElementById("searchInput"),
     syncBtn: document.getElementById("sync-btn"),
     syncIcon: document.getElementById("sync-icon"),
@@ -198,6 +211,7 @@
     params.set("limit", String(PAGE_LIMIT));
     params.set("bot_only", "false");
     if (state.platform) params.set("platform", state.platform);
+    if (state.provider) params.set("provider", state.provider);
     if (state.search) params.set("search", state.search);
     return `/api/services?${params.toString()}`;
   }
@@ -327,6 +341,20 @@
     `;
   }
 
+  function marginCell(item) {
+    const margin = item.margin_dh;
+    if (margin == null || !Number.isFinite(Number(margin))) {
+      if (Number(item.provider_price_usd) <= 0) {
+        return `<span class="text-[10px] text-amber-400">بدون سعر مورد</span>`;
+      }
+      return `<span class="text-slate-500">—</span>`;
+    }
+    const n = Number(margin);
+    const cls = n < 0 ? "text-red-400" : "text-emerald-300";
+    const unit = item.price_per_unit ? " / وحدة" : " / 1000";
+    return `<div class="font-mono text-xs ${cls}">${formatDh(n)}</div><div class="text-[10px] text-slate-500">${unit}</div>`;
+  }
+
   function botPriceCell(item) {
     const unit = item.price_per_unit ? "درهم/وحدة" : "درهم/1000";
     const priceValue = Number(item.local_price_dh);
@@ -342,9 +370,35 @@
     `;
   }
 
+  function populateProviders(providers, selected) {
+    const current = selected ?? els.providerFilter.value;
+    els.providerFilter.innerHTML = '<option value="">جميع المزوّدين</option>';
+    (providers || []).forEach((entry) => {
+      const opt = document.createElement("option");
+      opt.value = entry.slug || "";
+      opt.textContent = entry.name || entry.slug || "—";
+      els.providerFilter.appendChild(opt);
+    });
+    els.providerFilter.value = current;
+  }
+
+  async function loadProviders() {
+    const data = await fetchJson("/api/providers/options");
+    populateProviders(data.providers || []);
+  }
+
+  function providerCell(item) {
+    const slug = escapeHtml(item.provider_slug || "—");
+    const account = item.provider_api_account
+      ? `<div class="text-[10px] text-slate-500 mt-0.5">${escapeHtml(item.provider_api_account)}</div>`
+      : "";
+    return `<div class="text-xs text-slate-300">${slug}</div>${account}`;
+  }
+
   function renderRow(item) {
+    const catalogId = item.catalog_id || item.service_id;
     const localId =
-      item.local_item_id && item.local_item_id !== item.service_id
+      item.local_item_id && item.local_item_id !== catalogId
         ? `<div class="text-[10px] text-slate-500 mt-1">معرّف محلي: ${escapeHtml(item.local_item_id)}</div>`
         : "";
     const status = serviceStatusLabel(item);
@@ -352,10 +406,12 @@
     const location =
       item.location_label ||
       (item.category ? String(item.category) : "—");
+    const externalId = item.external_service_id || item.service_id;
     return `
-      <tr class="${rowClasses(item)}" data-service-id="${escapeHtml(item.service_id)}" data-active="${item.is_active ? "1" : "0"}">
+      <tr class="${rowClasses(item)}" data-catalog-id="${escapeHtml(catalogId)}" data-active="${item.is_active ? "1" : "0"}">
+        <td class="px-3 py-2 align-top">${providerCell(item)}</td>
         <td class="px-3 py-2 align-top">
-          <div class="font-mono text-slate-300 text-xs">${escapeHtml(item.service_id)}</div>
+          <div class="font-mono text-slate-300 text-xs">${escapeHtml(externalId)}</div>
           ${localId}
         </td>
         <td class="px-3 py-2 align-top">
@@ -368,6 +424,7 @@
         </td>
         <td class="px-3 py-2 align-top">${providerPriceCell(item)}</td>
         <td class="px-3 py-2 align-top">${botPriceCell(item)}</td>
+        <td class="px-3 py-2 align-top">${marginCell(item)}</td>
         <td class="px-3 py-2 align-top text-center">
           <label class="inline-flex flex-col items-center justify-center gap-1 cursor-pointer" title="تفعيل / إيقاف">
             <input type="checkbox" data-field="is_active" class="catalog-toggle h-4 w-4 rounded border-slate-600 bg-surface-800 text-emerald-500 focus:ring-emerald-500"
@@ -427,19 +484,22 @@
     els.syncBtn.disabled = on;
     els.refreshBtn.disabled = on;
     els.platformFilter.disabled = on;
+    els.providerFilter.disabled = on;
     els.searchInput.disabled = on;
     els.syncIcon?.classList.toggle("animate-spin", on);
   }
 
-  function findItem(serviceId) {
-    return state.items.find((i) => String(i.service_id) === String(serviceId));
+  function findItem(catalogId) {
+    return state.items.find(
+      (i) => String(i.catalog_id || i.service_id) === String(catalogId),
+    );
   }
 
-  function markRow(serviceId, flags) {
-    const item = findItem(serviceId);
+  function markRow(catalogId, flags) {
+    const item = findItem(catalogId);
     if (!item) return;
     Object.assign(item, flags);
-    const row = els.tbody.querySelector(`tr[data-service-id="${CSS.escape(serviceId)}"]`);
+    const row = els.tbody.querySelector(`tr[data-catalog-id="${CSS.escape(catalogId)}"]`);
     if (!row) return;
     if (flags._saved) {
       row.classList.add("ring-1", "ring-emerald-500/30");
@@ -472,33 +532,35 @@
     els.statInactive.textContent = String(state.inactiveCount);
   }
 
-  async function patchService(serviceId, payload) {
-    markRow(serviceId, { _saving: true });
+  async function patchService(catalogId, payload) {
+    markRow(catalogId, { _saving: true });
     try {
-      const data = await fetchJson(`/api/services/${encodeURIComponent(serviceId)}`, {
+      const data = await fetchJson(`/api/services/${encodeURIComponent(catalogId)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
       if (data.item) {
-        const idx = state.items.findIndex((i) => String(i.service_id) === String(serviceId));
+        const idx = state.items.findIndex(
+          (i) => String(i.catalog_id || i.service_id) === String(catalogId),
+        );
         if (idx >= 0) state.items[idx] = { ...state.items[idx], ...data.item };
       }
-      markRow(serviceId, { _saving: false, _saved: true, ...payload });
+      markRow(catalogId, { _saving: false, _saved: true, ...payload });
     } catch (e) {
-      markRow(serviceId, { _saving: false });
+      markRow(catalogId, { _saving: false });
       showAlert(e.message);
       throw e;
     }
   }
 
-  function scheduleSave(serviceId, payload) {
-    if (state.saveTimers.has(serviceId)) clearTimeout(state.saveTimers.get(serviceId));
+  function scheduleSave(catalogId, payload) {
+    if (state.saveTimers.has(catalogId)) clearTimeout(state.saveTimers.get(catalogId));
     state.saveTimers.set(
-      serviceId,
+      catalogId,
       setTimeout(() => {
-        state.saveTimers.delete(serviceId);
-        patchService(serviceId, payload).catch(() => {});
+        state.saveTimers.delete(catalogId);
+        patchService(catalogId, payload).catch(() => {});
       }, SAVE_DEBOUNCE_MS),
     );
   }
@@ -560,6 +622,11 @@
     loadServices({ resetPage: true });
   });
 
+  els.providerFilter.addEventListener("change", () => {
+    state.provider = els.providerFilter.value;
+    loadServices({ resetPage: true });
+  });
+
   els.searchInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter") {
       e.preventDefault();
@@ -583,29 +650,29 @@
   });
 
   els.tbody.addEventListener("input", (e) => {
-    const row = e.target.closest("tr[data-service-id]");
+    const row = e.target.closest("tr[data-catalog-id]");
     if (!row || !e.target.classList.contains("catalog-field")) return;
-    const serviceId = row.dataset.serviceId;
+    const catalogId = row.dataset.catalogId;
     const payload = collectRowPayload(row);
     if (e.target.dataset.field === "name_ar") {
-      scheduleSave(serviceId, { name_ar: payload.name_ar });
+      scheduleSave(catalogId, { name_ar: payload.name_ar });
     } else if (e.target.dataset.field === "local_price_dh") {
-      scheduleSave(serviceId, { local_price_dh: payload.local_price_dh });
+      scheduleSave(catalogId, { local_price_dh: payload.local_price_dh });
     }
   });
 
   els.tbody.addEventListener("change", (e) => {
     if (!e.target.classList.contains("catalog-toggle")) return;
-    const row = e.target.closest("tr[data-service-id]");
+    const row = e.target.closest("tr[data-catalog-id]");
     if (!row) return;
-    const serviceId = row.dataset.serviceId;
+    const catalogId = row.dataset.catalogId;
     const payload = collectRowPayload(row);
     if (!payload.is_active && !confirm("إيقاف هذه الخدمة يخفيها من البوت. متابعة؟")) {
       e.target.checked = true;
       return;
     }
-    const wasActive = findItem(serviceId)?.is_active ?? false;
-    patchService(serviceId, { is_active: payload.is_active }).then(() => {
+    const wasActive = findItem(catalogId)?.is_active ?? false;
+    patchService(catalogId, { is_active: payload.is_active }).then(() => {
       if (wasActive !== payload.is_active) bumpActiveStats(payload.is_active);
       showAlert(payload.is_active ? "تم تفعيل الخدمة." : "تم إيقاف الخدمة.", "success");
     }).catch(() => {});
@@ -617,6 +684,7 @@
   (async function init() {
     setLoading(true);
     try {
+      await loadProviders();
       await loadPlatforms();
       await loadServices();
     } catch (e) {

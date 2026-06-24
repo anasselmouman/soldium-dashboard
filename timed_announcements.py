@@ -1,15 +1,15 @@
 """Timed announcements — broadcast on launch and on every /start while active."""
 from __future__ import annotations
 
-import asyncio
 import re
 from datetime import datetime, timezone
 from typing import Any
 
 from admin_log import logger
-from broadcast import BROADCAST_DELAY_SECONDS, BroadcastValidationError, list_all_user_ids
+from broadcast import BroadcastValidationError, list_all_user_ids
+from broadcast_engine import deliver_timed_announcements_parallel
 from database_connector import get_db
-from notifier import bot_token_configured, send_timed_announcement
+from notifier import bot_token_configured
 
 STATUS_ACTIVE = "active"
 STATUS_STOPPED = "stopped"
@@ -47,6 +47,7 @@ async def _expire_past_announcements(db) -> None:
 
 
 def _row_to_announcement(row) -> dict[str, Any]:
+    auto_delete = row["auto_delete_seconds"]
     return {
         "id": int(row["id"]),
         "message_html": str(row["message_html"]),
@@ -55,6 +56,7 @@ def _row_to_announcement(row) -> dict[str, Any]:
         "created_at": str(row["created_at"]),
         "launched_at": str(row["launched_at"]) if row["launched_at"] else None,
         "stopped_at": str(row["stopped_at"]) if row["stopped_at"] else None,
+        "auto_delete_seconds": int(auto_delete) if auto_delete is not None else None,
     }
 
 
@@ -129,10 +131,13 @@ async def get_timed_announcement(announcement_id: int) -> dict[str, Any] | None:
     return _row_to_announcement(row) if row else None
 
 
-async def launch_timed_announcement(
+async def prepare_timed_announcement(
     message_html: str,
     ends_at: str,
+    *,
+    auto_delete_seconds: int | None = None,
 ) -> dict[str, Any]:
+    """Validate and persist announcement; return metadata for background delivery."""
     text = (message_html or "").strip()
     if not text:
         raise BroadcastValidationError("لا يمكن إرسال رسالة فارغة.")
@@ -141,6 +146,13 @@ async def launch_timed_announcement(
         raise BroadcastValidationError(
             "لم يتم ضبط BOT_TOKEN — تعذّر إرسال الرسائل عبر تيليغرام.",
         )
+
+    from message_deletions import validate_auto_delete_seconds
+
+    try:
+        auto_delete_seconds = validate_auto_delete_seconds(auto_delete_seconds)
+    except ValueError as exc:
+        raise BroadcastValidationError(str(exc)) from exc
 
     ends_dt = _parse_ends_at(ends_at)
     now_dt = datetime.now(timezone.utc)
@@ -154,43 +166,47 @@ async def launch_timed_announcement(
         await _expire_past_announcements(db)
         cursor = await db.execute(
             """
-            INSERT INTO timed_announcements (message_html, ends_at, status, launched_at)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO timed_announcements (message_html, ends_at, status, launched_at, auto_delete_seconds)
+            VALUES (?, ?, ?, ?, ?)
             """,
-            (text, ends_at_str, STATUS_ACTIVE, launched_at),
+            (text, ends_at_str, STATUS_ACTIVE, launched_at, auto_delete_seconds),
         )
         announcement_id = int(cursor.lastrowid)
         await db.commit()
 
     user_ids = await list_all_user_ids()
-    total = len(user_ids)
-    sent = 0
-    failed = 0
+    announcement = await get_timed_announcement(announcement_id)
+    return {
+        "announcement": announcement,
+        "user_ids": user_ids,
+        "message_html": text,
+        "auto_delete_seconds": auto_delete_seconds,
+    }
 
-    for user_id in user_ids:
-        try:
-            ok = await send_timed_announcement(user_id, announcement_id, text)
-        except Exception as exc:
-            logger.warning(
-                "timed announcement id=%s user_id=%s error: %s",
-                announcement_id,
-                user_id,
-                exc,
-            )
-            ok = False
-        if ok:
-            sent += 1
-        else:
-            failed += 1
-        await asyncio.sleep(BROADCAST_DELAY_SECONDS)
+
+async def deliver_timed_announcement_to_users(
+    announcement_id: int,
+    message_html: str,
+    *,
+    auto_delete_seconds: int | None = None,
+    on_progress=None,
+) -> dict[str, Any]:
+    user_ids = await list_all_user_ids()
+    total = len(user_ids)
+    sent, failed = await deliver_timed_announcements_parallel(
+        user_ids,
+        announcement_id=announcement_id,
+        message_html=message_html,
+        auto_delete_seconds=auto_delete_seconds,
+        on_progress=on_progress,
+    )
 
     logger.info(
-        "TIMED_ANNOUNCEMENT launched id=%s total=%s sent=%s failed=%s ends_at=%s",
+        "TIMED_ANNOUNCEMENT delivered id=%s total=%s sent=%s failed=%s",
         announcement_id,
         total,
         sent,
         failed,
-        ends_at_str,
     )
 
     announcement = await get_timed_announcement(announcement_id)
@@ -201,6 +217,29 @@ async def launch_timed_announcement(
         "sent": sent,
         "failed": failed,
     }
+
+
+async def launch_timed_announcement(
+    message_html: str,
+    ends_at: str,
+    *,
+    auto_delete_seconds: int | None = None,
+    on_progress=None,
+) -> dict[str, Any]:
+    """Synchronous launch (used by background job runner after prepare)."""
+    prepared = await prepare_timed_announcement(
+        message_html,
+        ends_at,
+        auto_delete_seconds=auto_delete_seconds,
+    )
+    announcement = prepared["announcement"]
+    announcement_id = int(announcement["id"])
+    return await deliver_timed_announcement_to_users(
+        announcement_id,
+        prepared["message_html"],
+        auto_delete_seconds=prepared["auto_delete_seconds"],
+        on_progress=on_progress,
+    )
 
 
 async def stop_timed_announcement(announcement_id: int) -> dict[str, Any]:

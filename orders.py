@@ -58,6 +58,17 @@ def _row_to_order(row: aiosqlite.Row) -> dict[str, Any]:
     telegram_name = row["telegram_name"]
     name = str(telegram_name).strip() if telegram_name else ""
     provider_id = row["provider_order_id"]
+    keys = row.keys()
+    provider_slug = (
+        str(row["provider_slug"]).strip().lower()
+        if "provider_slug" in keys and row["provider_slug"]
+        else None
+    )
+    api_account = (
+        str(row["api_account"]).strip().lower()
+        if "api_account" in keys and row["api_account"]
+        else None
+    )
     return {
         "id": int(row["id"]),
         "user_id": int(row["user_id"]),
@@ -69,6 +80,8 @@ def _row_to_order(row: aiosqlite.Row) -> dict[str, Any]:
         "status": str(row["status"]),
         "status_key": normalize_order_status_key(row["status"]),
         "provider_order_id": str(provider_id) if provider_id else None,
+        "provider_slug": provider_slug,
+        "api_account": api_account,
         "refunded_amount": float(row["refunded_amount"] or 0.0),
         "created_at": str(row["created_at"]),
     }
@@ -137,6 +150,8 @@ async def list_orders(
                 o.amount,
                 o.status,
                 o.provider_order_id,
+                o.provider_slug,
+                o.api_account,
                 COALESCE(o.refunded_amount, 0) AS refunded_amount,
                 o.created_at
             FROM orders o
@@ -173,6 +188,8 @@ async def get_order(order_id: int) -> dict[str, Any] | None:
                 o.amount,
                 o.status,
                 o.provider_order_id,
+                o.provider_slug,
+                o.api_account,
                 COALESCE(o.refunded_amount, 0) AS refunded_amount,
                 o.created_at
             FROM orders o
@@ -417,7 +434,8 @@ async def update_order_status(order_id: int, new_status: str) -> dict[str, Any]:
                     """
                     UPDATE orders
                     SET status = ?,
-                        refunded_amount = ROUND(COALESCE(amount, 0), 6)
+                        refunded_amount = ROUND(COALESCE(amount, 0), 6),
+                        status_changed_at = CURRENT_TIMESTAMP
                     WHERE id = ?
                       AND LOWER(REPLACE(status, '_', ' ')) NOT IN ('failed', 'canceled', 'refunded')
                     """,
@@ -438,7 +456,8 @@ async def update_order_status(order_id: int, new_status: str) -> dict[str, Any]:
                 order_cursor = await db.execute(
                     """
                     UPDATE orders
-                    SET status = ?
+                    SET status = ?,
+                        status_changed_at = CURRENT_TIMESTAMP
                     WHERE id = ?
                       AND LOWER(REPLACE(status, '_', ' ')) NOT IN ('failed', 'canceled', 'refunded')
                     """,
@@ -453,7 +472,8 @@ async def update_order_status(order_id: int, new_status: str) -> dict[str, Any]:
                 order_cursor = await db.execute(
                     """
                     UPDATE orders
-                    SET status = ?
+                    SET status = ?,
+                        status_changed_at = CURRENT_TIMESTAMP
                     WHERE id = ?
                       AND LOWER(REPLACE(status, '_', ' ')) NOT IN (
                           'failed', 'canceled', 'refunded', 'completed'
@@ -468,7 +488,8 @@ async def update_order_status(order_id: int, new_status: str) -> dict[str, Any]:
                 order_cursor = await db.execute(
                     """
                     UPDATE orders
-                    SET status = ?
+                    SET status = ?,
+                        status_changed_at = CURRENT_TIMESTAMP
                     WHERE id = ?
                       AND LOWER(REPLACE(status, '_', ' ')) NOT IN ('failed', 'canceled', 'refunded')
                     """,

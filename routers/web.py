@@ -142,6 +142,20 @@ async def withdrawals_page(request: Request):
     )
 
 
+@router.get("/providers")
+async def providers_page(request: Request):
+    return templates.TemplateResponse(
+        request,
+        "providers.html",
+        {
+            "page_title": "المزوّدون — سولديوم",
+            "active_nav": "providers",
+            "page_heading": "إدارة المزوّدين",
+            "page_subheading": "مزوّدو خدمات SMM وحسابات API",
+        },
+    )
+
+
 @router.get("/services")
 async def services_page(request: Request):
     return templates.TemplateResponse(
@@ -166,5 +180,19 @@ async def broadcast_page(request: Request):
             "active_nav": "broadcast",
             "page_heading": "نظام البث",
             "page_subheading": "رسائل مخصّصة، بث جماعي، وإعلانات مؤقتة عبر تيليغرام",
+        },
+    )
+
+
+@router.get("/notifications")
+async def notifications_page(request: Request):
+    return templates.TemplateResponse(
+        request,
+        "notifications.html",
+        {
+            "page_title": "إشعارات الأدمن — سولديوم",
+            "active_nav": "notifications",
+            "page_heading": "مركز إشعارات الأدمن",
+            "page_subheading": "سجل ما يُرسل إلى تيليغرام — طلبات، إيداعات، سحوبات، وتحذيرات",
         },
     )

@@ -63,6 +63,12 @@ class BroadcastRequest(BaseModel):
         max_length=4000,
         description="نص الرسالة بصيغة HTML المدعومة في تيليغرام",
     )
+    auto_delete_seconds: int | None = Field(
+        default=None,
+        ge=10,
+        le=604800,
+        description="حذف الرسالة تلقائياً بعد هذه المدة بالثواني",
+    )
 
 
 class PrivateMessageRequest(BaseModel):
@@ -78,6 +84,12 @@ class PrivateMessageRequest(BaseModel):
         max_length=4000,
         description="نص الرسالة بصيغة HTML المدعومة في تيليغرام",
     )
+    auto_delete_seconds: int | None = Field(
+        default=None,
+        ge=10,
+        le=604800,
+        description="حذف الرسالة تلقائياً بعد هذه المدة بالثواني",
+    )
 
 
 class LaunchTimedAnnouncementRequest(BaseModel):
@@ -92,6 +104,12 @@ class LaunchTimedAnnouncementRequest(BaseModel):
         min_length=1,
         max_length=40,
         description="وقت انتهاء الإعلان (ISO 8601)",
+    )
+    auto_delete_seconds: int | None = Field(
+        default=None,
+        ge=10,
+        le=604800,
+        description="حذف كل رسالة إعلان تلقائياً بعد هذه المدة من لحظة إرسالها",
     )
 
 
@@ -118,3 +136,31 @@ class SendManualOrderNotifyRequest(BaseModel):
         max_length=2000,
         description="نص الرسالة للعميل (صاحب الطلب) عبر تيليغرام",
     )
+
+
+class CreateProviderRequest(BaseModel):
+    slug: str = Field(..., min_length=1, max_length=50)
+    name: str = Field(..., min_length=1, max_length=200)
+    api_base_url: str = Field(..., min_length=1, max_length=500)
+    adapter_type: str = Field(default="gozibra_v2", max_length=50)
+    is_active: bool = Field(default=True)
+
+
+class PatchProviderRequest(BaseModel):
+    name: str | None = Field(default=None, max_length=200)
+    api_base_url: str | None = Field(default=None, max_length=500)
+    adapter_type: str | None = Field(default=None, max_length=50)
+    is_active: bool | None = Field(default=None)
+
+
+class CreateProviderAccountRequest(BaseModel):
+    account_key: str = Field(..., min_length=1, max_length=50)
+    api_key_env: str = Field(..., min_length=1, max_length=100)
+    display_name: str | None = Field(default=None, max_length=200)
+    is_active: bool = Field(default=True)
+
+
+class PatchProviderAccountRequest(BaseModel):
+    api_key_env: str | None = Field(default=None, max_length=100)
+    display_name: str | None = Field(default=None, max_length=200)
+    is_active: bool | None = Field(default=None)

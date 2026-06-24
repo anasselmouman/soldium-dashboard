@@ -54,6 +54,7 @@ async def get_service_categories():
 @router.get("/services")
 async def list_services(
     platform: str | None = Query(default=None, description="تصفية حسب المنصة"),
+    provider: str | None = Query(default=None, description="تصفية حسب المزوّد"),
     category: str | None = Query(default=None, description="تصفية حسب التصنيف"),
     search: str | None = Query(default=None, description="بحث في الاسم أو المعرّف"),
     page: int = Query(default=1, ge=1),
@@ -64,6 +65,7 @@ async def list_services(
         result = await catalog.list_services_paginated(
             category=category,
             platform=platform,
+            provider=provider,
             search=search,
             page=page,
             limit=limit,
@@ -127,9 +129,11 @@ async def patch_service(service_id: str, body: PatchServiceRequest):
 
 
 @router.post("/services/sync")
-async def sync_services_with_provider():
+async def sync_services_with_provider(
+    provider: str | None = Query(default=None, description="مزامنة مزوّد محدد فقط"),
+):
     try:
-        provider_result = await fetch_provider_services()
+        stats = await catalog.sync_catalog_with_providers(provider_slug=provider)
     except Exception as exc:
         logger.exception("sync provider services failed")
         raise HTTPException(
@@ -137,16 +141,13 @@ async def sync_services_with_provider():
             detail=f"{SYNC_PROVIDER_SERVICES_FAILED} ({exc})",
         ) from exc
 
-    if not provider_result.get("ok"):
+    if not stats.get("ok"):
         raise HTTPException(
             status_code=502,
-            detail=provider_result.get("error") or SYNC_PROVIDER_SERVICES_FAILED,
+            detail=stats.get("error") or SYNC_PROVIDER_SERVICES_FAILED,
         )
 
     try:
-        stats = await catalog.sync_from_provider(
-            provider_result.get("services") or [],
-        )
         platforms = await catalog.list_platforms(bot_only=False)
     except Exception as exc:
         logger.exception("sync merge into db failed")
@@ -160,7 +161,8 @@ async def sync_services_with_provider():
         "message": (
             f"تمت المزامنة: {stats['updated']} محدّثة، "
             f"{stats['inserted']} جديدة بانتظار المراجعة، "
-            f"{stats.get('rates_applied', 0)} سعر مزوّد."
+            f"{stats.get('rates_applied', 0)} سعر مزوّد، "
+            f"{stats.get('price_sync_updated', 0)} سعر كتالوج محدّث."
         ),
         "sync_stats": stats,
         "platforms": platforms,

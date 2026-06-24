@@ -5,7 +5,9 @@ import logging
 from typing import Any
 
 from database_connector import db_transaction, get_db
+from services.provider_registry import get_default_provider_slug
 from settings import SERVICE_USD_TO_DH_MULTIPLIER
+from utils.order_economics import catalog_margin_dh
 from utils.provider_parse import parse_provider_rate, parse_provider_service_id
 
 logger = logging.getLogger("soldium.services")
@@ -48,7 +50,15 @@ def _location_label(row: Any) -> str:
     return category or "غير مُصنَّف"
 
 
+def _row_keys(row: Any) -> set[str]:
+    try:
+        return set(row.keys())
+    except Exception:
+        return set()
+
+
 def _row_to_dict(row: Any) -> dict[str, Any]:
+    keys = _row_keys(row)
     category = str(row["category"] or "")
     provider_price_usd = float(row["provider_price_usd"] or 0)
     local_price_dh = float(row["local_price_dh"] or 0)
@@ -62,14 +72,42 @@ def _row_to_dict(row: Any) -> dict[str, Any]:
                 provider_price_usd * SERVICE_USD_TO_DH_MULTIPLIER,
                 2,
             )
+    margin_dh = catalog_margin_dh(
+        provider_price_usd=provider_price_usd,
+        local_price_dh=local_price_dh,
+        price_per_unit=price_per_unit,
+    )
+
+    service_id = str(row["service_id"])
+    catalog_id = str(row["catalog_id"]) if "catalog_id" in keys else service_id
+    external_service_id = (
+        str(row["external_service_id"])
+        if "external_service_id" in keys and row["external_service_id"]
+        else service_id
+    )
+    provider_slug = (
+        str(row["provider_slug"]).strip().lower()
+        if "provider_slug" in keys and row["provider_slug"]
+        else get_default_provider_slug()
+    )
+    provider_api_account = (
+        str(row["provider_api_account"] or "")
+        if "provider_api_account" in keys
+        else ""
+    )
 
     return {
-        "service_id": str(row["service_id"]),
+        "catalog_id": catalog_id,
+        "service_id": service_id,
+        "external_service_id": external_service_id,
+        "provider_slug": provider_slug,
+        "provider_api_account": provider_api_account,
         "category": category,
         "name_ar": str(row["name_ar"] or ""),
         "provider_price_usd": provider_price_usd,
         "local_price_dh": local_price_dh,
         "bot_display_price_dh": bot_display_price_dh,
+        "margin_dh": margin_dh,
         "price_per_unit": price_per_unit,
         "min_qty": int(row["min_qty"] or 1),
         "max_qty": int(row["max_qty"] or 0),
@@ -100,6 +138,7 @@ def _build_filters(
     *,
     category: str | None,
     platform: str | None,
+    provider: str | None,
     search: str | None,
     bot_only: bool,
 ) -> tuple[str, list[Any]]:
@@ -110,6 +149,10 @@ def _build_filters(
     if bot_only:
         clauses.append("platform_key != ''")
         clauses.append("is_active = 1")
+
+    if provider and provider.strip():
+        clauses.append("provider_slug = ?")
+        params.append(provider.strip().lower())
 
     if platform and platform.strip():
         if platform.strip() == "__unassigned__":
@@ -127,9 +170,10 @@ def _build_filters(
         term = f"%{raw}%"
         clauses.append(
             "(name_ar LIKE ? ESCAPE '\\' OR service_id LIKE ? ESCAPE '\\' "
-            "OR local_item_id LIKE ? ESCAPE '\\')",
+            "OR local_item_id LIKE ? ESCAPE '\\' OR catalog_id LIKE ? ESCAPE '\\' "
+            "OR external_service_id LIKE ? ESCAPE '\\' OR provider_slug LIKE ? ESCAPE '\\')",
         )
-        params.extend([term, term, term])
+        params.extend([term, term, term, term, term, term])
 
     if not clauses:
         return "", []
@@ -154,6 +198,7 @@ async def list_platforms(*, bot_only: bool = False) -> list[dict[str, Any]]:
     where_sql, params = _build_filters(
         category=None,
         platform=None,
+        provider=None,
         search=None,
         bot_only=bot_only,
     )
@@ -189,6 +234,7 @@ async def list_services_paginated(
     *,
     category: str | None = None,
     platform: str | None = None,
+    provider: str | None = None,
     search: str | None = None,
     page: int = 1,
     limit: int = 50,
@@ -201,6 +247,7 @@ async def list_services_paginated(
     where_sql, params = _build_filters(
         category=category,
         platform=platform,
+        provider=provider,
         search=search,
         bot_only=bot_only,
     )
@@ -256,13 +303,26 @@ async def list_services_paginated(
     }
 
 
+async def _fetch_service_row(db, identifier: str) -> Any | None:
+    ident = str(identifier).strip()
+    if not ident:
+        return None
+    queries = (
+        "SELECT * FROM smm_services WHERE catalog_id = ?",
+        "SELECT * FROM smm_services WHERE service_id = ?",
+        "SELECT * FROM smm_services WHERE local_item_id = ?",
+    )
+    for sql in queries:
+        async with db.execute(sql, (ident,)) as cursor:
+            row = await cursor.fetchone()
+        if row is not None:
+            return row
+    return None
+
+
 async def get_service(service_id: str) -> dict[str, Any] | None:
     async with get_db() as db:
-        async with db.execute(
-            "SELECT * FROM smm_services WHERE service_id = ?",
-            (str(service_id),),
-        ) as cursor:
-            row = await cursor.fetchone()
+        row = await _fetch_service_row(db, service_id)
     return _row_to_dict(row) if row else None
 
 
@@ -287,11 +347,14 @@ async def update_service(
     if not fields:
         return False
 
-    params.append(str(service_id))
-    sql = f"UPDATE smm_services SET {', '.join(fields)} WHERE service_id = ?"
-
     async with db_transaction() as db:
-        cursor = await db.execute(sql, params)
+        row = await _fetch_service_row(db, service_id)
+        if row is None:
+            return False
+        keys = _row_keys(row)
+        catalog_id = str(row["catalog_id"]) if "catalog_id" in keys else str(row["service_id"])
+        sql = f"UPDATE smm_services SET {', '.join(fields)} WHERE catalog_id = ?"
+        cursor = await db.execute(sql, [*params, catalog_id])
         return int(cursor.rowcount or 0) > 0
 
 
@@ -325,7 +388,7 @@ def _case_insensitive_get(entry: dict[str, Any], *keys: str) -> Any:
 
 
 async def sync_from_provider(provider_services: list[dict[str, Any]]) -> dict[str, int]:
-    """Merge provider API list into smm_services. Returns counts."""
+    """Merge provider API list into smm_services (multi-provider aware)."""
     updated = 0
     inserted = 0
     rates_applied = 0
@@ -341,7 +404,11 @@ async def sync_from_provider(provider_services: list[dict[str, Any]]) -> dict[st
                 skipped_no_id += 1
                 continue
 
-            service_id = str(pid)
+            external_id = str(pid)
+            provider_slug = str(
+                entry.get("provider_slug") or get_default_provider_slug(),
+            ).strip().lower()
+            api_account = str(entry.get("api_account") or "default").strip().lower() or "default"
             rate = parse_provider_rate(entry)
             min_qty, max_qty = _limits_from_entry(entry)
 
@@ -349,62 +416,77 @@ async def sync_from_provider(provider_services: list[dict[str, Any]]) -> dict[st
                 rates_applied += 1
 
             cursor = await db.execute(
-                "SELECT service_id FROM smm_services WHERE service_id = ?",
-                (service_id,),
+                """
+                SELECT catalog_id FROM smm_services
+                WHERE provider_slug = ? AND external_service_id = ?
+                """,
+                (provider_slug, external_id),
             )
             exists = await cursor.fetchone()
 
             if exists:
+                catalog_id = str(exists["catalog_id"])
                 if rate is not None:
                     await db.execute(
                         """
                         UPDATE smm_services
-                        SET provider_price_usd = ?, min_qty = ?, max_qty = ?
-                        WHERE service_id = ?
+                        SET provider_price_usd = ?,
+                            min_qty = ?,
+                            max_qty = ?,
+                            provider_api_account = ?,
+                            provider_price_updated_at = datetime('now')
+                        WHERE catalog_id = ?
                         """,
-                        (float(rate), min_qty, max_qty, service_id),
+                        (float(rate), min_qty, max_qty, api_account, catalog_id),
                     )
                 else:
                     await db.execute(
                         """
                         UPDATE smm_services
-                        SET min_qty = ?, max_qty = ?
-                        WHERE service_id = ?
+                        SET min_qty = ?, max_qty = ?, provider_api_account = ?
+                        WHERE catalog_id = ?
                         """,
-                        (min_qty, max_qty, service_id),
+                        (min_qty, max_qty, api_account, catalog_id),
                     )
                     logger.warning(
-                        "Provider service %s missing rate/price fields: keys=%s",
-                        service_id,
+                        "Provider service %s/%s missing rate: keys=%s",
+                        provider_slug,
+                        external_id,
                         list(entry.keys())[:12],
                     )
                 updated += 1
             else:
                 name = str(
                     _case_insensitive_get(entry, "name", "title")
-                    or f"خدمة #{service_id}",
+                    or f"خدمة #{external_id}",
                 )[:500]
                 category = str(
                     _case_insensitive_get(entry, "category", "type") or "غير مصنّف",
                 )[:500]
                 usd_rate = float(rate) if rate is not None else 0.0
+                catalog_id = f"{provider_slug}-{external_id}"
                 await db.execute(
                     """
                     INSERT INTO smm_services (
-                        service_id, category, name_ar, provider_price_usd,
+                        catalog_id, external_service_id, service_id, provider_slug,
+                        provider_api_account, category, name_ar, provider_price_usd,
                         local_price_dh, min_qty, max_qty, is_active,
                         platform_key, local_item_id, platform_title
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, '', ?, '')
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, '', ?, '')
                     """,
                     (
-                        service_id,
+                        catalog_id,
+                        external_id,
+                        external_id,
+                        provider_slug,
+                        api_account,
                         category,
                         name,
                         usd_rate,
                         _default_local_price(usd_rate),
                         min_qty,
                         max_qty,
-                        service_id,
+                        catalog_id,
                     ),
                 )
                 inserted += 1
@@ -424,6 +506,31 @@ async def sync_from_provider(provider_services: list[dict[str, Any]]) -> dict[st
         "rates_applied": rates_applied,
         "skipped_no_id": skipped_no_id,
         "total_provider": len(provider_services),
+    }
+
+
+async def sync_catalog_with_providers(
+    *,
+    provider_slug: str | None = None,
+) -> dict[str, Any]:
+    from services.provider_sync_bridge import refresh_catalog_prices
+    from services.smm_provider import fetch_provider_services
+
+    payload = await fetch_provider_services(provider_slug=provider_slug)
+    if not payload.get("ok"):
+        return {
+            "ok": False,
+            "error": payload.get("error") or "فشل جلب خدمات المزوّد.",
+        }
+    merge_stats = await sync_from_provider(payload.get("services") or [])
+    price_stats = await refresh_catalog_prices(
+        provider_slug=provider_slug,
+        active_only=False,
+    )
+    return {
+        "ok": True,
+        **merge_stats,
+        **price_stats,
     }
 
 

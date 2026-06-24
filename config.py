@@ -27,39 +27,9 @@ ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "").strip()
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "").strip()
 
 SECRET_KEY = os.getenv("SECRET_KEY", "").strip() or os.getenv(
-
     "ADMIN_PASSWORD",
-
     "change-me-in-production",
-
 ).strip()
-
-
-
-SMM_KEY_INSTAGRAM = os.getenv("SMM_KEY_INSTAGRAM", "").strip()
-
-SMM_KEY_FACEBOOK = os.getenv("SMM_KEY_FACEBOOK", "").strip()
-
-SMM_KEY_TIKTOK = os.getenv("SMM_KEY_TIKTOK", "").strip()
-
-SMM_KEY_DEFAULT = os.getenv("SMM_KEY_DEFAULT", "").strip()
-
-API_URL = os.getenv("API_URL", "https://gozibra.com/api/v2").strip()
-
-
-
-SMM_API_KEYS: dict[str, str] = {
-
-    "instagram": SMM_KEY_INSTAGRAM,
-
-    "facebook": SMM_KEY_FACEBOOK,
-
-    "tiktok": SMM_KEY_TIKTOK,
-
-    "default": SMM_KEY_DEFAULT,
-
-}
-
 
 
 SESSION_COOKIE_NAME = "soldium_admin_session"
@@ -71,6 +41,45 @@ SESSION_MAX_AGE_SECONDS = int(
 REMEMBER_ME_MAX_AGE_SECONDS = int(
     os.getenv("REMEMBER_ME_MAX_AGE_SECONDS", str(90 * 24 * 3600)),
 )
+
+# ─── Admin alerts (bot health / stuck orders) ───
+def _env_int(name: str, default: int) -> int:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
+def _env_float(name: str, default: float) -> float:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        return default
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name, "").strip().lower()
+    if not raw:
+        return default
+    return raw in {"1", "true", "yes", "on"}
+
+
+ADMIN_TELEGRAM_ID = _env_int("ADMIN_ID", 0)
+ALERT_STUCK_EXECUTION_HOURS = _env_int("ALERT_STUCK_EXECUTION_HOURS", 24)
+ALERT_STUCK_SUBMITTED_HOURS = _env_int("ALERT_STUCK_SUBMITTED_HOURS", 12)
+ALERT_OLD_MANUAL_HOURS = _env_int("ALERT_OLD_MANUAL_HOURS", 24)
+ALERT_OLD_DEPOSIT_HOURS = _env_int("ALERT_OLD_DEPOSIT_HOURS", 48)
+ALERT_OLD_WITHDRAWAL_HOURS = _env_int("ALERT_OLD_WITHDRAWAL_HOURS", 48)
+ALERT_PROVIDER_BALANCE_MIN_USD = _env_float("ALERT_PROVIDER_BALANCE_MIN_USD", 50.0)
+ALERT_STALE_PRICES_DAYS = _env_int("ALERT_STALE_PRICES_DAYS", 7)
+ALERT_SCAN_INTERVAL_MINUTES = _env_int("ALERT_SCAN_INTERVAL_MINUTES", 5)
+ALERT_TELEGRAM_ON_CRITICAL = _env_bool("ALERT_TELEGRAM_ON_CRITICAL", True)
 
 
 

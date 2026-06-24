@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "partials/broadcast_composer.html" import broadcast_composer %}
+{% from "partials/auto_delete_option.html" import auto_delete_option %}
 
 {% block title %}{{ page_title }}{% endblock %}
 
@@ -261,12 +262,14 @@
         "تُرسل الرسالة للمستخدمين المحدّدين فقط مع ترويسة «رسالة من الإدارة»."
       ) }}
 
+      {{ auto_delete_option("private") }}
+
       <div id="private-loading" class="hidden rounded-lg border border-amber-900/50 bg-amber-950/30 px-4 py-3 flex items-center gap-3 text-sm text-amber-200">
         <svg class="h-5 w-5 animate-spin shrink-0" viewBox="0 0 24 24" fill="none" aria-hidden="true">
           <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
           <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
         </svg>
-        <span>جاري الإرسال… الرجاء عدم إغلاق الصفحة حتى اكتمال العملية.</span>
+        <span id="private-loading-text">جاري الإرسال… الرجاء عدم إغلاق الصفحة حتى اكتمال العملية.</span>
       </div>
 
       <button
@@ -293,12 +296,14 @@
         "يُرسل البث لجميع المستخدمين المسجّلين. التنسيقات المسموحة: عريض، مائل، تسطير، شطب، كود، ورابط فقط."
       ) }}
 
+      {{ auto_delete_option("mass") }}
+
       <div id="mass-loading" class="hidden rounded-lg border border-amber-900/50 bg-amber-950/30 px-4 py-3 flex items-center gap-3 text-sm text-amber-200">
         <svg class="h-5 w-5 animate-spin shrink-0" viewBox="0 0 24 24" fill="none" aria-hidden="true">
           <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
           <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
         </svg>
-        <span>جاري الإرسال… الرجاء عدم إغلاق الصفحة حتى اكتمال العملية.</span>
+        <span id="mass-loading-text">جاري الإرسال… الرجاء عدم إغلاق الصفحة حتى اكتمال العملية.</span>
       </div>
 
       <button
@@ -346,12 +351,14 @@
         "يُعرض الإعلان مع ترويسة «إعلان مؤقت» وزر إخفاء دائم."
       ) }}
 
+      {{ auto_delete_option("timed") }}
+
       <div id="timed-loading" class="hidden rounded-lg border border-amber-900/50 bg-amber-950/30 px-4 py-3 flex items-center gap-3 text-sm text-amber-200">
         <svg class="h-5 w-5 animate-spin shrink-0" viewBox="0 0 24 24" fill="none" aria-hidden="true">
           <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
           <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
         </svg>
-        <span>جاري الإطلاق والإرسال… الرجاء عدم إغلاق الصفحة.</span>
+        <span id="timed-loading-text">جاري الإطلاق والإرسال… الرجاء عدم إغلاق الصفحة.</span>
       </div>
 
       <button
@@ -393,6 +400,80 @@
 
   const MAX_RECIPIENTS = 100;
   const USERS_API = "/api/users";
+  const MIN_AUTO_DELETE_SECONDS = 10;
+  const MAX_AUTO_DELETE_SECONDS = 7 * 24 * 3600;
+
+  function initAutoDeleteOption(prefix) {
+    const enabled = document.getElementById(`${prefix}-auto-delete-enabled`);
+    const fields = document.getElementById(`${prefix}-auto-delete-fields`);
+    if (!enabled || !fields) return;
+
+    enabled.addEventListener("change", () => {
+      fields.classList.toggle("hidden", !enabled.checked);
+    });
+  }
+
+  function getAutoDeleteSeconds(prefix) {
+    const enabled = document.getElementById(`${prefix}-auto-delete-enabled`);
+    if (!enabled?.checked) return null;
+
+    const valueEl = document.getElementById(`${prefix}-auto-delete-value`);
+    const unitEl = document.getElementById(`${prefix}-auto-delete-unit`);
+    const value = parseInt(valueEl?.value || "0", 10);
+    const unit = parseInt(unitEl?.value || "1", 10);
+    if (!Number.isFinite(value) || value <= 0) {
+      throw new Error("أدخل مدة صالحة للحذف التلقائي.");
+    }
+
+    const seconds = value * unit;
+    if (seconds < MIN_AUTO_DELETE_SECONDS) {
+      throw new Error(`الحد الأدنى للحذف التلقائي هو ${MIN_AUTO_DELETE_SECONDS} ثوانٍ.`);
+    }
+    if (seconds > MAX_AUTO_DELETE_SECONDS) {
+      throw new Error("مدة الحذف التلقائي لا يمكن أن تتجاوز 7 أيام.");
+    }
+    return seconds;
+  }
+
+  ["private", "mass", "timed"].forEach(initAutoDeleteOption);
+
+  function wait(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  async function pollBroadcastJob(jobId, loadingTextEl) {
+    for (let attempt = 0; attempt < 7200; attempt += 1) {
+      const response = await fetch(`/api/broadcast/jobs/${encodeURIComponent(jobId)}`, {
+        credentials: "same-origin",
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(parseDetail(body));
+      }
+
+      const total = Number(body.total ?? 0);
+      const sent = Number(body.sent ?? 0);
+      const failed = Number(body.failed ?? 0);
+      const processed = sent + failed;
+
+      if (loadingTextEl) {
+        loadingTextEl.textContent =
+          total > 0
+            ? `جاري الإرسال… ${processed.toLocaleString("ar-MA")} / ${total.toLocaleString("ar-MA")} (نجح: ${sent.toLocaleString("ar-MA")}${failed ? `، فشل: ${failed.toLocaleString("ar-MA")}` : ""})`
+            : "جاري الإرسال…";
+      }
+
+      if (body.status === "completed") {
+        return body;
+      }
+      if (body.status === "failed") {
+        throw new Error(body.error || body.message || "فشلت عملية الإرسال.");
+      }
+
+      await wait(1500);
+    }
+    throw new Error("انتهت مهلة انتظار اكتمال الإرسال.");
+  }
 
   function showAlert(message, type = "error") {
     alertEl.textContent = message;
@@ -646,6 +727,7 @@
   // --- Private message submit ---
   const privateForm = document.getElementById("private-form");
   const privateLoading = document.getElementById("private-loading");
+  const privateLoadingText = document.getElementById("private-loading-text");
 
   privateForm.addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -658,6 +740,14 @@
     }
     if (recipients.size === 0) {
       showAlert("حدّد مستلماً واحداً على الأقل.");
+      return;
+    }
+
+    let autoDeleteSeconds = null;
+    try {
+      autoDeleteSeconds = getAutoDeleteSeconds("private");
+    } catch (err) {
+      showAlert(err.message);
       return;
     }
 
@@ -682,15 +772,18 @@
         body: JSON.stringify({
           user_ids: Array.from(recipients.keys()),
           message_html: message,
+          auto_delete_seconds: autoDeleteSeconds,
         }),
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(parseDetail(body));
 
-      const sent = Number(body.sent ?? 0);
-      const total = Number(body.total_recipients ?? 0);
-      const failed = Number(body.failed ?? 0);
-      const invalid = body.invalid_user_ids || [];
+      const job = await pollBroadcastJob(body.job_id, privateLoadingText);
+      const result = job.result || {};
+      const sent = Number(result.sent ?? job.sent ?? 0);
+      const total = Number(result.total_recipients ?? job.total ?? 0);
+      const failed = Number(result.failed ?? job.failed ?? 0);
+      const invalid = result.invalid_user_ids || body.invalid_user_ids || [];
 
       let msg = `تم إرسال الرسالة إلى ${sent.toLocaleString("ar-MA")} مستخدم من أصل ${total.toLocaleString("ar-MA")}.`;
       if (failed > 0) {
@@ -718,6 +811,7 @@
   const massForm = document.getElementById("mass-form");
   const massSubmitBtn = document.getElementById("mass-submit-btn");
   const massLoading = document.getElementById("mass-loading");
+  const massLoadingText = document.getElementById("mass-loading-text");
 
   massForm.addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -737,6 +831,14 @@
       return;
     }
 
+    let autoDeleteSeconds = null;
+    try {
+      autoDeleteSeconds = getAutoDeleteSeconds("mass");
+    } catch (err) {
+      showAlert(err.message);
+      return;
+    }
+
     massSubmitBtn.disabled = true;
     massComposer.setDisabled(true);
     massLoading.classList.remove("hidden");
@@ -746,14 +848,19 @@
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "same-origin",
-        body: JSON.stringify({ message_html: message }),
+        body: JSON.stringify({
+          message_html: message,
+          auto_delete_seconds: autoDeleteSeconds,
+        }),
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(parseDetail(body));
 
-      const sent = Number(body.sent ?? 0);
-      const total = Number(body.total_users ?? 0);
-      const failed = Number(body.failed ?? 0);
+      const job = await pollBroadcastJob(body.job_id, massLoadingText);
+      const result = job.result || {};
+      const sent = Number(result.sent ?? job.sent ?? 0);
+      const total = Number(result.total_users ?? job.total ?? 0);
+      const failed = Number(result.failed ?? job.failed ?? 0);
       let msg = `تم إرسال البث بنجاح إلى ${sent.toLocaleString("ar-MA")} مستخدم من أصل ${total.toLocaleString("ar-MA")}.`;
       if (failed > 0) {
         msg += ` (${failed.toLocaleString("ar-MA")} فشل — قد يكون المستخدم لم يبدأ البوت).`;
@@ -773,6 +880,7 @@
   const timedForm = document.getElementById("timed-form");
   const timedSubmitBtn = document.getElementById("timed-submit-btn");
   const timedLoading = document.getElementById("timed-loading");
+  const timedLoadingText = document.getElementById("timed-loading-text");
   const timedEndsAt = document.getElementById("timed-ends-at");
   const timedList = document.getElementById("timed-list");
   const timedRefreshBtn = document.getElementById("timed-refresh-btn");
@@ -794,6 +902,20 @@
     const dt = new Date(normalized);
     if (Number.isNaN(dt.getTime())) return value;
     return dt.toLocaleString("ar-MA", { dateStyle: "medium", timeStyle: "short" });
+  }
+
+  function formatAutoDeleteLabel(seconds) {
+    const s = Number(seconds);
+    if (!Number.isFinite(s) || s <= 0) return "—";
+    if (s % 3600 === 0) {
+      const hours = s / 3600;
+      return hours === 1 ? "ساعة واحدة" : `${hours.toLocaleString("ar-MA")} ساعات`;
+    }
+    if (s % 60 === 0) {
+      const minutes = s / 60;
+      return minutes === 1 ? "دقيقة واحدة" : `${minutes.toLocaleString("ar-MA")} دقائق`;
+    }
+    return `${s.toLocaleString("ar-MA")} ثانية`;
   }
 
   const statusLabels = {
@@ -845,6 +967,9 @@
           item.status === "active"
             ? `<button type="button" class="timed-stop-btn mt-2 rounded-lg border border-red-900/50 bg-red-950/30 px-3 py-1.5 text-xs font-medium text-red-200 hover:bg-red-900/45 transition" data-id="${item.id}">إيقاف الآن</button>`
             : "";
+        const autoDeleteLabel = item.auto_delete_seconds
+          ? `<span>حذف تلقائي: ${formatAutoDeleteLabel(item.auto_delete_seconds)}</span>`
+          : "";
         return (
           `<article class="rounded-lg border border-slate-700/80 bg-surface-900/60 p-4 space-y-2">` +
           `<div class="flex flex-wrap items-center justify-between gap-2">` +
@@ -854,6 +979,7 @@
           `<p class="text-sm text-slate-300 line-clamp-2">${preview || "—"}</p>` +
           `<div class="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-slate-500">` +
           `<span>ينتهي: ${formatDisplayDate(item.ends_at)}</span>` +
+          autoDeleteLabel +
           `</div>` +
           stopBtn +
           `</article>`
@@ -913,6 +1039,14 @@
       return;
     }
 
+    let autoDeleteSeconds = null;
+    try {
+      autoDeleteSeconds = getAutoDeleteSeconds("timed");
+    } catch (err) {
+      showAlert(err.message);
+      return;
+    }
+
     timedSubmitBtn.disabled = true;
     timedComposer.setDisabled(true);
     timedLoading.classList.remove("hidden");
@@ -925,15 +1059,18 @@
         body: JSON.stringify({
           message_html: message,
           ends_at: endsDate.toISOString(),
+          auto_delete_seconds: autoDeleteSeconds,
         }),
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(parseDetail(body));
 
-      const sent = Number(body.sent ?? 0);
-      const total = Number(body.total_users ?? 0);
-      const failed = Number(body.failed ?? 0);
-      let msg = `تم إطلاق الإعلان #${body.announcement?.id ?? ""} — وصل إلى ${sent.toLocaleString("ar-MA")} من ${total.toLocaleString("ar-MA")}.`;
+      const job = await pollBroadcastJob(body.job_id, timedLoadingText);
+      const result = job.result || {};
+      const sent = Number(result.sent ?? job.sent ?? 0);
+      const total = Number(result.total_users ?? job.total ?? 0);
+      const failed = Number(result.failed ?? job.failed ?? 0);
+      let msg = `تم إطلاق الإعلان #${result.announcement?.id ?? body.announcement?.id ?? ""} — وصل إلى ${sent.toLocaleString("ar-MA")} من ${total.toLocaleString("ar-MA")}.`;
       if (failed > 0) {
         msg += ` (${failed.toLocaleString("ar-MA")} فشل).`;
       }

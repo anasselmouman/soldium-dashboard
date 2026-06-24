@@ -172,6 +172,8 @@
 
             <th class="px-4 py-3 font-medium">رقم الطلب</th>
 
+            <th class="px-4 py-3 font-medium">المزوّد</th>
+
             <th class="px-4 py-3 font-medium">المستخدم</th>
 
             <th class="px-4 py-3 font-medium">الخدمة</th>
@@ -726,11 +728,20 @@
 
       : '<span class="text-slate-500">—</span>';
 
+    const providerLabel = order.provider_slug
+      ? escapeHtml(order.provider_slug)
+      : '<span class="text-slate-500">—</span>';
+    const accountLabel = order.api_account
+      ? `<div class="text-[10px] text-slate-500 mt-0.5">${escapeHtml(order.api_account)}</div>`
+      : "";
+
     return `
 
       <tr class="hover:bg-surface-800/40 transition" data-order-id="${order.id}">
 
         <td class="px-4 py-3 font-mono text-xs text-slate-300">${providerId}</td>
+
+        <td class="px-4 py-3 text-xs text-slate-300">${providerLabel}${accountLabel}</td>
 
         <td class="px-4 py-3">${userDisplayName(order)}</td>
 

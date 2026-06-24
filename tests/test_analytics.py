@@ -11,7 +11,7 @@ import pytest
 import database_connector as db_conn
 from analytics import get_liquidity_metrics, get_profit_chart
 from db_schema import SMM_SERVICES_DDL
-from settings import PARTIAL_PROVIDER_USD_TO_DH, SERVICE_USD_TO_DH_MULTIPLIER
+from settings import SERVICE_USD_TO_DH_MULTIPLIER
 from smm_services import DEFAULT_MARKUP_MULTIPLIER
 
 
@@ -40,6 +40,8 @@ def _create_test_db(path: Path) -> None:
                 status TEXT NOT NULL DEFAULT 'pending',
                 refunded_amount REAL NOT NULL DEFAULT 0,
                 referral_commission_amount REAL NOT NULL DEFAULT 0,
+                provider_cost_dh REAL NOT NULL DEFAULT 0,
+                provider_slug TEXT NOT NULL DEFAULT 'gozibra',
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
             CREATE TABLE deposit_transactions (
@@ -72,6 +74,12 @@ def _create_test_db(path: Path) -> None:
             """
         )
         conn.executescript(SMM_SERVICES_DDL)
+        conn.execute(
+            "ALTER TABLE smm_services ADD COLUMN catalog_id TEXT NOT NULL DEFAULT ''"
+        )
+        conn.execute(
+            "ALTER TABLE smm_services ADD COLUMN external_service_id TEXT NOT NULL DEFAULT ''"
+        )
     finally:
         conn.close()
 
@@ -88,12 +96,14 @@ def _insert_service(
     conn.execute(
         """
         INSERT INTO smm_services (
-            service_id, category, name_ar, provider_price_usd,
+            service_id, catalog_id, external_service_id, category, name_ar, provider_price_usd,
             local_price_dh, min_qty, max_qty, is_active,
-            platform_key, local_item_id, platform_title
-        ) VALUES (?, ?, 'test', ?, ?, 1, 1000, 1, 'test', ?, 'Test')
+            platform_key, local_item_id, platform_title, provider_slug
+        ) VALUES (?, ?, ?, ?, 'test', ?, ?, 1, 1000, 1, 'test', ?, 'Test', 'gozibra')
         """,
         (
+            service_id,
+            service_id,
             service_id,
             category,
             provider_price_usd,
@@ -328,7 +338,7 @@ def test_profit_partial_uses_audit_log_provider_usd(
         chart = await get_profit_chart()
         idx = _today_chart_index(chart)
 
-        expected_cost = round(2.0 * PARTIAL_PROVIDER_USD_TO_DH, 2)
+        expected_cost = round(2.0 * SERVICE_USD_TO_DH_MULTIPLIER, 2)
         assert chart["costs"][idx] == expected_cost
         assert chart["sales"][idx] == 50.0
 
@@ -388,9 +398,10 @@ def test_profit_excludes_referral_from_costs(analytics_db: sqlite3.Connection) -
         expected_cost = round(1.0 * mult, 2)
         assert chart["costs"][idx] == expected_cost
         assert chart["sales"][idx] == 50.0
-        assert chart["net_profit"][idx] == round(50.0 - expected_cost, 2)
+        assert chart["net_profit"][idx] == round(50.0 - expected_cost - 10.0, 2)
+        assert chart["totals"]["referral_commissions_dh"] == 10.0
         assert chart["totals"]["net_profit_dh"] == round(
-            chart["totals"]["sales_dh"] - chart["totals"]["costs_dh"], 2
+            chart["totals"]["sales_dh"] - chart["totals"]["costs_dh"] - 10.0, 2
         )
 
     asyncio.run(_run())
