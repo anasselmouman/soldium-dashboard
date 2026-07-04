@@ -176,9 +176,11 @@
 
         <div>
 
-          <p class="text-xs font-medium uppercase tracking-wider text-slate-500">إجمالي المستخدمين</p>
+          <p class="text-xs font-medium uppercase tracking-wider text-slate-500">المستخدمون النشطون</p>
 
           <p id="kpi-users" class="mt-3 text-3xl font-bold text-white tabular-nums">—</p>
+
+          <p id="kpi-users-total" class="mt-1 text-xs text-slate-500 tabular-nums">—</p>
 
         </div>
 
@@ -196,7 +198,7 @@
 
       <div class="soldium-segment-divider my-4"></div>
 
-      <p class="text-xs text-slate-500">جميع الحسابات المسجّلة في البوت</p>
+      <p class="text-xs text-slate-500">من نفّذ طلباً أو إيداعاً أو إحالة أو له رصيد</p>
 
     </article>
 
@@ -435,6 +437,8 @@
     refreshIcon: document.getElementById("refresh-icon"),
 
     users: document.getElementById("kpi-users"),
+
+    usersTotal: document.getElementById("kpi-users-total"),
 
     revenue: document.getElementById("kpi-revenue"),
     netProfit: document.getElementById("kpi-net-profit"),
@@ -770,7 +774,20 @@
 
   function populateStats(data) {
 
-    els.users.textContent = formatCount(data.total_users ?? 0);
+    const activeUsers =
+      typeof data.active_users === "number" ? data.active_users : null;
+
+    els.users.textContent =
+      activeUsers === null ? "—" : formatCount(activeUsers);
+
+    if (els.usersTotal) {
+      if (activeUsers === null) {
+        els.usersTotal.textContent = "أعد تشغيل خادم لوحة التحكم";
+      } else {
+        els.usersTotal.textContent =
+          "من أصل " + formatCount(data.total_users ?? 0) + " مسجّل";
+      }
+    }
 
     els.revenue.textContent = formatDh(data.total_revenue_dh ?? 0);
     if (els.netProfit) {
@@ -801,6 +818,9 @@
 
     if (typeof window.updateNavManualOrdersBadge === "function") {
       window.updateNavManualOrdersBadge(pendingMo);
+    }
+    if (typeof window.updateNavWithdrawalsBadge === "function") {
+      window.updateNavWithdrawalsBadge(pendingWd);
     }
 
     renderActiveAnnouncements(data.active_timed_announcements ?? []);

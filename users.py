@@ -19,6 +19,7 @@ from utils.messages_ar import (
     user_not_found,
 )
 from utils.money import to_float
+from user_activity import COUNT_ACTIVE_USERS_SQL, USER_IS_ACTIVE_EXPR
 
 MIN_REFERRAL_LEVEL = 1
 MAX_REFERRAL_LEVEL = 4
@@ -39,7 +40,14 @@ class UserValidationError(Exception):
 def _row_to_user(row: aiosqlite.Row) -> dict[str, Any]:
     telegram_name = row["telegram_name"]
     name = str(telegram_name).strip() if telegram_name else ""
-    return {
+    is_active = None
+    if "is_active" in row.keys():
+        raw_active = row["is_active"]
+        if isinstance(raw_active, bool):
+            is_active = raw_active
+        else:
+            is_active = bool(int(raw_active or 0))
+    payload = {
         "user_id": int(row["user_id"]),
         "telegram_name": name or None,
         "balance": float(row["balance"] or 0.0),
@@ -47,6 +55,9 @@ def _row_to_user(row: aiosqlite.Row) -> dict[str, Any]:
         "referral_level": int(row["referral_level"] or 1),
         "referral_balance": float(row["referral_balance"] or 0.0),
     }
+    if is_active is not None:
+        payload["is_active"] = is_active
+    return payload
 
 
 def _search_clause(search: str | None) -> tuple[str, list[Any]]:
@@ -56,14 +67,22 @@ def _search_clause(search: str | None) -> tuple[str, list[Any]]:
     if term.isdigit():
         uid = int(term)
         return (
-            "WHERE user_id = ? OR telegram_name LIKE ?",
+            "WHERE (u.user_id = ? OR u.telegram_name LIKE ?)",
             [uid, f"%{term}%"],
         )
     like = f"%{term}%"
     return (
-        "WHERE telegram_name LIKE ? OR CAST(user_id AS TEXT) LIKE ?",
+        "WHERE (u.telegram_name LIKE ? OR CAST(u.user_id AS TEXT) LIKE ?)",
         [like, like],
     )
+
+
+def _combine_where(*parts: str) -> str:
+    clauses = [part.strip() for part in parts if part and part.strip()]
+    if not clauses:
+        return ""
+    merged = " AND ".join(f"({part.removeprefix('WHERE ').strip()})" for part in clauses)
+    return f"WHERE {merged}"
 
 
 async def list_users(
@@ -71,24 +90,36 @@ async def list_users(
     page: int = 1,
     limit: int = DEFAULT_PAGE_SIZE,
     search: str | None = None,
+    active_only: bool = False,
 ) -> dict[str, Any]:
     page = max(1, page)
     limit = max(1, min(limit, MAX_PAGE_SIZE))
     offset = (page - 1) * limit
-    where_sql, params = _search_clause(search)
+    search_sql, params = _search_clause(search)
+    active_sql = f"WHERE {USER_IS_ACTIVE_EXPR}" if active_only else ""
+    where_sql = _combine_where(search_sql, active_sql)
 
     async with get_db() as db:
-        count_sql = f"SELECT COUNT(*) FROM users {where_sql}"
+        async with db.execute(COUNT_ACTIVE_USERS_SQL) as cursor:
+            active_total_row = await cursor.fetchone()
+        active_users = int(active_total_row[0]) if active_total_row else 0
+
+        async with db.execute("SELECT COUNT(*) FROM users") as cursor:
+            all_total_row = await cursor.fetchone()
+        all_users = int(all_total_row[0]) if all_total_row else 0
+
+        count_sql = f"SELECT COUNT(*) FROM users u {where_sql}"
         async with db.execute(count_sql, params) as cursor:
             total_row = await cursor.fetchone()
         total = int(total_row[0]) if total_row else 0
 
         list_sql = f"""
-            SELECT user_id, telegram_name, balance, total_spent,
-                   referral_level, referral_balance
-            FROM users
+            SELECT u.user_id, u.telegram_name, u.balance, u.total_spent,
+                   u.referral_level, u.referral_balance,
+                   {USER_IS_ACTIVE_EXPR} AS is_active
+            FROM users u
             {where_sql}
-            ORDER BY user_id DESC
+            ORDER BY is_active DESC, u.user_id DESC
             LIMIT ? OFFSET ?
         """
         async with db.execute(list_sql, [*params, limit, offset]) as cursor:
@@ -101,6 +132,9 @@ async def list_users(
         "limit": limit,
         "total": total,
         "total_pages": total_pages,
+        "total_users": all_users,
+        "active_users": active_users,
+        "active_only": active_only,
         "users": users,
     }
 
@@ -138,11 +172,12 @@ def _compute_trust_status(
 async def get_user(user_id: int) -> dict[str, Any] | None:
     async with get_db() as db:
         async with db.execute(
-            """
-            SELECT user_id, telegram_name, balance, total_spent,
-                   referral_level, referral_balance
-            FROM users
-            WHERE user_id = ?
+            f"""
+            SELECT u.user_id, u.telegram_name, u.balance, u.total_spent,
+                   u.referral_level, u.referral_balance,
+                   {USER_IS_ACTIVE_EXPR} AS is_active
+            FROM users u
+            WHERE u.user_id = ?
             """,
             (user_id,),
         ) as cursor:

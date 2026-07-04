@@ -37,8 +37,8 @@ _PENDING_WITHDRAWALS_SQL = """
         w.withdrawal_type,
         w.created_at
     FROM withdrawals AS w
-    INNER JOIN users AS u ON u.user_id = w.user_id
-    WHERE w.status = 'pending'
+    LEFT JOIN users AS u ON u.user_id = w.user_id
+    WHERE LOWER(TRIM(w.status)) = 'pending'
     ORDER BY w.id ASC
 """
 
@@ -54,7 +54,7 @@ _WITHDRAWAL_BY_ID_SQL = """
         w.withdrawal_type,
         w.created_at
     FROM withdrawals AS w
-    INNER JOIN users AS u ON u.user_id = w.user_id
+    LEFT JOIN users AS u ON u.user_id = w.user_id
     WHERE w.id = ?
 """
 

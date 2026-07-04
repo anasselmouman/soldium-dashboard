@@ -17,10 +17,29 @@
 
 {% block content %}
 <section class="space-y-6">
-  <div class="flex flex-col sm:flex-row sm:items-end sm:justify-end gap-4">
-    <div class="rounded-xl border border-slate-800 bg-surface-900 px-4 py-3 min-w-[120px] ms-auto">
-      <p class="text-xs uppercase tracking-wider text-slate-500">إجمالي المستخدمين</p>
-      <p id="users-total" class="mt-1 text-2xl font-semibold text-accent-400">—</p>
+  <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+    <div class="inline-flex rounded-lg border border-slate-700 bg-surface-900 p-1 gap-1">
+      <button
+        id="filter-all"
+        type="button"
+        class="users-filter-btn rounded-md px-3 py-1.5 text-xs font-medium transition"
+        data-active-only="0"
+      >
+        الكل
+      </button>
+      <button
+        id="filter-active"
+        type="button"
+        class="users-filter-btn rounded-md px-3 py-1.5 text-xs font-medium transition"
+        data-active-only="1"
+      >
+        النشطون فقط
+      </button>
+    </div>
+    <div class="rounded-xl border border-slate-800 bg-surface-900 px-4 py-3 min-w-[140px] ms-auto">
+      <p class="text-xs uppercase tracking-wider text-slate-500">المستخدمون النشطون</p>
+      <p id="users-active" class="mt-1 text-2xl font-semibold text-accent-400 tabular-nums">—</p>
+      <p id="users-total" class="mt-0.5 text-xs text-slate-500 tabular-nums">—</p>
     </div>
   </div>
 
@@ -66,6 +85,7 @@
       <table class="min-w-full text-sm text-start">
         <thead class="bg-surface-800/80 text-xs uppercase tracking-wider text-slate-400">
           <tr>
+            <th class="px-4 py-3 font-medium">الحالة</th>
             <th class="px-4 py-3 font-medium">المعرّف</th>
             <th class="px-4 py-3 font-medium">المستخدم</th>
             <th class="px-4 py-3 font-medium">الرصيد</th>
@@ -186,6 +206,7 @@
 {% block scripts %}
 <script>
   const API_BASE = "/api/users";
+  const STATS_URL = "/api/stats";
   const REFERRAL_LEVEL_NAMES = {
     1: "ناشر",
     2: "محترف",
@@ -197,8 +218,11 @@
     page: 1,
     limit: 25,
     search: "",
+    activeOnly: false,
     total: 0,
     totalPages: 1,
+    totalUsers: 0,
+    activeUsers: 0,
     users: [],
     selectedUser: null,
   };
@@ -209,7 +233,10 @@
     empty: document.getElementById("empty-state"),
     tableWrap: document.getElementById("table-wrap"),
     tbody: document.getElementById("users-body"),
+    active: document.getElementById("users-active"),
     total: document.getElementById("users-total"),
+    filterAll: document.getElementById("filter-all"),
+    filterActive: document.getElementById("filter-active"),
     searchInput: document.getElementById("search-input"),
     searchBtn: document.getElementById("search-btn"),
     refreshBtn: document.getElementById("refresh-btn"),
@@ -305,15 +332,24 @@
       : userProfileLink(uid, `<span class="font-mono">${uid}</span>`);
   }
 
+  function activityBadge(user) {
+    if (user.is_active) {
+      return `<span class="inline-flex rounded-md bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 text-xs font-medium">نشط</span>`;
+    }
+    return `<span class="inline-flex rounded-md bg-slate-700/40 text-slate-400 border border-slate-600/40 px-2 py-0.5 text-xs font-medium">مسجّل فقط</span>`;
+  }
+
   function renderRow(user) {
+    const inactiveClass = user.is_active ? "" : " opacity-60";
     return `
       <tr
-        class="hover:bg-surface-800/40 transition cursor-pointer"
+        class="hover:bg-surface-800/40 transition cursor-pointer${inactiveClass}"
         data-user-id="${user.user_id}"
         tabindex="0"
         role="button"
         aria-label="إدارة المستخدم ${user.user_id}"
       >
+        <td class="px-4 py-3">${activityBadge(user)}</td>
         <td class="px-4 py-3 font-mono text-slate-300">${userProfileLink(user.user_id, String(user.user_id))}</td>
         <td class="px-4 py-3">${userDisplayName(user)}</td>
         <td class="px-4 py-3 font-semibold text-emerald-300">${formatDh(user.balance)}</td>
@@ -374,10 +410,53 @@
   }
 
   function updatePagination() {
-    els.pageInfo.textContent = `الصفحة ${state.page} من ${state.totalPages} — ${state.total} مستخدم`;
+    const scope = state.activeOnly ? "نشط" : "إجمالي";
+    els.pageInfo.textContent =
+      `الصفحة ${state.page} من ${state.totalPages} — ${state.total} ${scope}`;
     els.prevPage.disabled = state.page <= 1;
     els.nextPage.disabled = state.page >= state.totalPages;
     els.pagination.classList.toggle("hidden", state.total === 0);
+  }
+
+  function updateStatsHeader() {
+    if (els.active) {
+      els.active.textContent = String(state.activeUsers ?? 0);
+    }
+    if (els.total) {
+      els.total.textContent =
+        "من أصل " + String(state.totalUsers ?? 0) + " مسجّل";
+    }
+  }
+
+  function updateFilterButtons() {
+    const activeClass =
+      "bg-accent-600 text-white shadow-sm";
+    const idleClass =
+      "text-slate-400 hover:text-slate-200 hover:bg-surface-800";
+    [els.filterAll, els.filterActive].forEach((btn) => {
+      if (!btn) return;
+      const isActive =
+        (btn.dataset.activeOnly === "1") === state.activeOnly;
+      btn.className =
+        "users-filter-btn rounded-md px-3 py-1.5 text-xs font-medium transition " +
+        (isActive ? activeClass : idleClass);
+    });
+  }
+
+  async function loadUserStats() {
+    try {
+      const data = await fetchJson(STATS_URL);
+      if (typeof data.active_users === "number") {
+        state.activeUsers = data.active_users;
+      }
+      if (typeof data.total_users === "number") {
+        state.totalUsers = data.total_users;
+      }
+      updateStatsHeader();
+    } catch {
+      if (els.active) els.active.textContent = "—";
+      if (els.total) els.total.textContent = "—";
+    }
   }
 
   async function loadUsers() {
@@ -391,6 +470,7 @@
       limit: String(state.limit),
     });
     if (state.search) params.set("search", state.search);
+    if (state.activeOnly) params.set("active_only", "true");
 
     try {
       const data = await fetchJson(`${API_BASE}?${params}`);
@@ -398,8 +478,15 @@
       state.total = data.total ?? 0;
       state.totalPages = data.total_pages ?? 1;
       state.page = data.page ?? state.page;
+      if (typeof data.active_users === "number") {
+        state.activeUsers = data.active_users;
+      }
+      if (typeof data.total_users === "number") {
+        state.totalUsers = data.total_users;
+      }
 
-      els.total.textContent = String(state.total);
+      updateStatsHeader();
+      updateFilterButtons();
       updatePagination();
 
       if (state.users.length === 0) {
@@ -411,7 +498,6 @@
       els.tbody.innerHTML = state.users.map(renderRow).join("");
       els.tableWrap.classList.remove("hidden");
     } catch (err) {
-      els.total.textContent = "—";
       showAlert(err.message || "تعذّر تحميل قائمة المستخدمين.");
     } finally {
       setLoading(false);
@@ -522,12 +608,31 @@
     }
   });
 
-  els.refreshBtn.addEventListener("click", loadUsers);
+  els.filterAll?.addEventListener("click", () => {
+    if (!state.activeOnly) return;
+    state.activeOnly = false;
+    state.page = 1;
+    loadUsers();
+  });
+
+  els.filterActive?.addEventListener("click", () => {
+    if (state.activeOnly) return;
+    state.activeOnly = true;
+    state.page = 1;
+    loadUsers();
+  });
+
+  els.refreshBtn.addEventListener("click", () => {
+    loadUserStats();
+    loadUsers();
+  });
   modal.backdrop.addEventListener("click", closeModal);
   modal.close.addEventListener("click", closeModal);
   modal.adjustBtn.addEventListener("click", applyBalanceAdjust);
   modal.levelBtn.addEventListener("click", applyReferralLevel);
 
+  updateFilterButtons();
+  loadUserStats();
   loadUsers();
 </script>
 {% endblock %}

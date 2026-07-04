@@ -46,9 +46,18 @@ async def get_users(
         max_length=100,
         description="بحث بمعرّف تيليغرام أو اسم المستخدم",
     ),
+    active_only: bool = Query(
+        False,
+        description="عرض المستخدمين النشطين فقط",
+    ),
 ):
     try:
-        return await list_users(page=page, limit=limit, search=search)
+        return await list_users(
+            page=page,
+            limit=limit,
+            search=search,
+            active_only=active_only,
+        )
     except FileNotFoundError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:

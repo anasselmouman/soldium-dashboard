@@ -8,6 +8,7 @@ from admin_alerts import count_open_alerts, list_open_alerts
 from admin_notifications import get_notifications_summary
 from database_connector import get_db
 from timed_announcements import list_active_timed_announcements
+from user_activity import COUNT_ACTIVE_USERS_SQL
 
 
 async def get_dashboard_stats() -> dict[str, Any]:
@@ -15,6 +16,10 @@ async def get_dashboard_stats() -> dict[str, Any]:
         async with db.execute("SELECT COUNT(*) FROM users") as cursor:
             users_row = await cursor.fetchone()
         total_users = int(users_row[0]) if users_row else 0
+
+        async with db.execute(COUNT_ACTIVE_USERS_SQL) as cursor:
+            active_row = await cursor.fetchone()
+        active_users = int(active_row[0]) if active_row else 0
 
         async with db.execute(
             """
@@ -43,7 +48,11 @@ async def get_dashboard_stats() -> dict[str, Any]:
         pending_deposits = int(dep_row[0]) if dep_row else 0
 
         async with db.execute(
-            "SELECT COUNT(*) FROM withdrawals WHERE status = 'pending'"
+            """
+            SELECT COUNT(*)
+            FROM withdrawals
+            WHERE LOWER(TRIM(status)) = 'pending'
+            """
         ) as cursor:
             wd_row = await cursor.fetchone()
         pending_withdrawals = int(wd_row[0]) if wd_row else 0
@@ -79,6 +88,7 @@ async def get_dashboard_stats() -> dict[str, Any]:
     pending_actions = pending_deposits + pending_withdrawals + pending_manual_orders
     return {
         "total_users": total_users,
+        "active_users": active_users,
         "total_revenue_dh": round(total_revenue, 2),
         "net_profit_dh": round(profit_totals["net_profit_dh"], 2),
         "provider_costs_dh": round(profit_totals["provider_costs_dh"], 2),

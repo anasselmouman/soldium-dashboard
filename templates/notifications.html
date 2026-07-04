@@ -332,7 +332,11 @@
 
   async function refreshAll() {
     hideAlert();
-    await loadSummary();
+    try {
+      await loadSummary();
+    } catch (err) {
+      showAlert(err.message || "تعذّر تحميل ملخص الإشعارات.");
+    }
     await loadNotifications(true);
   }
 

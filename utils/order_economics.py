@@ -50,6 +50,35 @@ def compute_provider_cost_dh(
     return float(cost.quantize(_MONEY_STEP, rounding=ROUND_HALF_UP))
 
 
+def minimum_retail_price_dh(
+    provider_price_usd: float,
+    *,
+    usd_to_dh: float | None = None,
+) -> float:
+    """أقل سعر بيع مسموح = سعر المورد بالدولار × مضاعف التحويل (افتراضي 14)."""
+    rate = float(provider_price_usd or 0)
+    if rate <= 0:
+        return 0.0
+    mult = float(usd_to_dh if usd_to_dh is not None else SERVICE_USD_TO_DH_MULTIPLIER)
+    return round(rate * mult, 2)
+
+
+def is_retail_below_minimum_margin(
+    provider_price_usd: float,
+    local_price_dh: float,
+    *,
+    usd_to_dh: float | None = None,
+) -> bool:
+    """هل سعر البيع المحلي أقل من الحد الأدنى (سعر المورد × المضاعف)؟"""
+    minimum = minimum_retail_price_dh(provider_price_usd, usd_to_dh=usd_to_dh)
+    if minimum <= 0:
+        return False
+    retail = float(local_price_dh or 0)
+    if retail <= 0:
+        return False
+    return retail < minimum
+
+
 def catalog_margin_dh(
     *,
     provider_price_usd: float,

@@ -18,14 +18,19 @@ from config import (
     ALERT_STUCK_EXECUTION_HOURS,
     ALERT_STUCK_SUBMITTED_HOURS,
     ALERT_TELEGRAM_ON_CRITICAL,
+    ALERT_TELEGRAM_ON_LOW_MARGIN,
 )
 from database_connector import get_db
+from settings import SERVICE_USD_TO_DH_MULTIPLIER
 from utils.order_alert_format import (
     ORDER_ALERT_CATALOG_JOIN,
     ORDER_ALERT_SELECT_EXTRA,
     catalog_fields_from_row,
     format_order_alert_messages,
 )
+from settings import SERVICE_USD_TO_DH_MULTIPLIER
+from utils.order_alert_format import platform_label, provider_label
+from utils.order_economics import minimum_retail_price_dh
 from utils.order_ref import display_order_ref
 from utils.order_status import normalize_order_status_key, status_label_ar
 
@@ -109,7 +114,7 @@ def _action_url_for_alert(
         return "/withdrawals"
     if alert_type in {"low_provider_balance", "provider_balance_error"}:
         return "/providers"
-    if alert_type == "stale_prices":
+    if alert_type in {"stale_prices", "low_margin"}:
         return "/services"
     if payload and payload.get("action_url"):
         return str(payload["action_url"])
@@ -178,8 +183,8 @@ async def dismiss_alert(alert_id: int) -> bool:
 
 
 async def _upsert_candidates(candidates: list[AlertCandidate]) -> list[AlertCandidate]:
-    """Persist alerts; return newly created critical candidates for Telegram."""
-    new_critical: list[AlertCandidate] = []
+    """Persist alerts; return newly created candidates that need Telegram."""
+    new_for_telegram: list[AlertCandidate] = []
     active_fps = {c.fingerprint for c in candidates}
 
     async with get_db() as db:
@@ -224,13 +229,20 @@ async def _upsert_candidates(candidates: list[AlertCandidate]) -> list[AlertCand
                 (candidate.fingerprint,),
             ) as cursor:
                 row = await cursor.fetchone()
+            notify_telegram = candidate.severity == "critical" and ALERT_TELEGRAM_ON_CRITICAL
+            if (
+                candidate.alert_type == "low_margin"
+                and candidate.severity == "warning"
+                and ALERT_TELEGRAM_ON_LOW_MARGIN
+            ):
+                notify_telegram = True
             if (
                 row
                 and int(row["telegram_notified"] or 0) == 0
                 and str(row["status"]) == "open"
-                and candidate.severity == "critical"
+                and notify_telegram
             ):
-                new_critical.append(candidate)
+                new_for_telegram.append(candidate)
                 await db.execute(
                     "UPDATE admin_alerts SET telegram_notified = 1 WHERE id = ?",
                     (int(row["id"]),),
@@ -257,7 +269,7 @@ async def _upsert_candidates(candidates: list[AlertCandidate]) -> list[AlertCand
             )
         await db.commit()
 
-    return new_critical
+    return new_for_telegram
 
 
 def _order_ref_text(provider_order_id: str | None, order_id: int) -> str:
@@ -659,6 +671,89 @@ async def _scan_stale_prices() -> list[AlertCandidate]:
     ]
 
 
+async def _scan_low_margin_services() -> list[AlertCandidate]:
+    """تحذير عندما يكون سعر البيع أقل من سعر المورد × SERVICE_USD_TO_DH_MULTIPLIER."""
+    multiplier = SERVICE_USD_TO_DH_MULTIPLIER
+    async with get_db() as db:
+        async with db.execute(
+            """
+            SELECT service_id, catalog_id, name_ar, category,
+                   platform_title, platform_key, provider_slug,
+                   provider_price_usd, local_price_dh
+            FROM smm_services
+            WHERE is_active = 1
+              AND provider_price_usd > 0
+              AND local_price_dh > 0
+              AND local_price_dh < (provider_price_usd * ?)
+            ORDER BY (provider_price_usd * ?) - local_price_dh DESC
+            LIMIT 100
+            """,
+            (multiplier, multiplier),
+        ) as cursor:
+            rows = await cursor.fetchall()
+
+    candidates: list[AlertCandidate] = []
+    for row in rows:
+        service_id = str(row["service_id"])
+        provider_usd = float(row["provider_price_usd"])
+        local_dh = float(row["local_price_dh"])
+        min_dh = minimum_retail_price_dh(provider_usd, usd_to_dh=multiplier)
+        deficit = round(min_dh - local_dh, 2)
+        name = str(row["name_ar"] or service_id).strip()
+        platform = platform_label(row["platform_title"], row["platform_key"])
+        provider = provider_label(None, row["provider_slug"], None)
+        unit_hint = "للوحدة" if str(row["category"] or "") == "per_unit" else "لـ 1000"
+        catalog_ref = str(row["catalog_id"] or service_id).strip()
+
+        plain = (
+            f"سعر البيع ({local_dh:.2f} درهم {unit_hint}) أقل من الحد الأدنى "
+            f"({min_dh:.2f} درهم = {provider_usd:.4f} USD × {multiplier:g}).\n"
+            f"معرّف الخدمة: {catalog_ref}\n"
+            f"المنصة: {platform}\n"
+            f"المزوّد: {provider}\n"
+            f"الخدمة: {name}\n"
+            f"النقص: {deficit:.2f} درهم"
+        )
+        message_html = (
+            f"<b>هامش ربح منخفض</b>\n"
+            f'معرّف الخدمة: <code>{html.escape(catalog_ref)}</code>\n'
+            f"المنصة: <b>{html.escape(platform)}</b>\n"
+            f"المزوّد: <b>{html.escape(provider)}</b>\n"
+            f"الخدمة: <b>{html.escape(name)}</b>\n"
+            f"سعر المورد: <code>{provider_usd:.4f}</code> USD\n"
+            f"سعر البيع: <code>{local_dh:.2f}</code> درهم {html.escape(unit_hint)}\n"
+            f"الحد الأدنى: <code>{min_dh:.2f}</code> درهم "
+            f"(× <code>{multiplier:g}</code>)\n"
+            f"النقص: <code>{deficit:.2f}</code> درهم"
+        )
+        candidates.append(
+            AlertCandidate(
+                alert_type="low_margin",
+                severity="warning",
+                entity_type="service",
+                entity_id=service_id,
+                title=f"هامش ربح منخفض — {name}",
+                message=plain,
+                fingerprint=f"low_margin:{service_id}",
+                payload={
+                    "service_id": service_id,
+                    "catalog_id": catalog_ref,
+                    "name_ar": name,
+                    "platform": platform,
+                    "provider": provider,
+                    "provider_price_usd": provider_usd,
+                    "local_price_dh": local_dh,
+                    "minimum_price_dh": min_dh,
+                    "deficit_dh": deficit,
+                    "multiplier": multiplier,
+                    "price_unit": unit_hint,
+                    "message_html": message_html,
+                },
+            )
+        )
+    return candidates
+
+
 async def scan_all_alerts() -> dict[str, int]:
     """Run all scanners, upsert alerts, optionally notify Telegram."""
     await ensure_admin_alerts_schema()
@@ -671,6 +766,7 @@ async def scan_all_alerts() -> dict[str, int]:
         _scan_old_withdrawals,
         _scan_low_provider_balance,
         _scan_stale_prices,
+        _scan_low_margin_services,
     )
     for scanner in scanners:
         try:
@@ -678,12 +774,12 @@ async def scan_all_alerts() -> dict[str, int]:
         except Exception as exc:
             logger.warning("Alert scanner %s failed: %s", scanner.__name__, exc, exc_info=True)
 
-    new_critical = await _upsert_candidates(candidates)
+    new_for_telegram = await _upsert_candidates(candidates)
 
-    if ALERT_TELEGRAM_ON_CRITICAL and new_critical:
+    if new_for_telegram:
         from notifier import notify_admin_system_alert
 
-        for candidate in new_critical:
+        for candidate in new_for_telegram:
             try:
                 message_html = None
                 if candidate.payload:

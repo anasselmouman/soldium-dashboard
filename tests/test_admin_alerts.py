@@ -110,6 +110,7 @@ def test_scan_detects_stuck_execution_order(alerts_db, monkeypatch):
         return []
 
     monkeypatch.setattr("admin_alerts._scan_low_provider_balance", _empty_provider_scan)
+    monkeypatch.setattr("admin_alerts._scan_low_margin_services", _empty_provider_scan)
 
     async def _run():
         result = await scan_all_alerts()
@@ -128,6 +129,7 @@ def test_dismiss_alert_hides_from_open_list(alerts_db, monkeypatch):
         return []
 
     monkeypatch.setattr("admin_alerts._scan_low_provider_balance", _empty_provider_scan)
+    monkeypatch.setattr("admin_alerts._scan_low_margin_services", _empty_provider_scan)
 
     async def _run():
         await scan_all_alerts()

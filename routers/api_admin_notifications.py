@@ -50,6 +50,15 @@ async def read_all_notifications():
     return {"ok": True, "updated": updated}
 
 
+@router.get("/summary")
+async def notifications_summary():
+    try:
+        summary = await get_notifications_summary()
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return {"ok": True, **summary}
+
+
 @router.get("/{notification_id}")
 async def get_notification(notification_id: int):
     try:

@@ -590,9 +590,13 @@
 
     try {
 
-      const data = await fetch(API_URL, { credentials: "same-origin" }).then((r) => r.json());
+      const response = await fetch(API_URL, { credentials: "same-origin" });
 
-      if (!data.withdrawals) throw new Error(parseErrorDetail(data));
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) throw new Error(parseErrorDetail(data));
+
+      if (!Array.isArray(data.withdrawals)) throw new Error(parseErrorDetail(data));
 
 
 

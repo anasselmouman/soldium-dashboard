@@ -78,3 +78,4 @@ def test_search_notifications(notifications_db):
         assert found["total"] == 1
 
     asyncio.run(_run())
+
