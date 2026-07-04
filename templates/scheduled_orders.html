@@ -1,0 +1,618 @@
+{% extends "base.html" %}
+
+{% block title %}{{ page_title }} — الطلبات المجدولة{% endblock %}
+
+{% block header_actions %}
+<button
+  id="refresh-btn"
+  type="button"
+  class="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-surface-800 px-3 py-2 text-sm font-medium text-slate-200 hover:bg-surface-700 hover:border-slate-600 transition disabled:opacity-50"
+>
+  <svg id="refresh-icon" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+    <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v6h6M20 20v-6h-6M5 19a9 9 0 0114-7.5M19 5a9 9 0 00-14 7.5" />
+  </svg>
+  تحديث
+</button>
+<button
+  id="create-btn"
+  type="button"
+  class="inline-flex items-center gap-2 rounded-lg bg-accent-600 hover:bg-accent-500 px-3 py-2 text-sm font-medium text-white transition"
+>
+  + مهمة جديدة
+</button>
+{% endblock %}
+
+{% block content %}
+<section class="space-y-6">
+  <div class="rounded-xl border border-violet-500/20 bg-violet-950/20 px-4 py-3 text-sm text-violet-100/90">
+    يُخصم مبلغ كل تنفيذ من رصيد <strong>حساب الأدمن</strong> (ADMIN_ID). اختر طلباً موجوداً — يُنسخ منه الخدمة والرابط.
+  </div>
+
+  <div class="flex flex-wrap gap-3">
+    <div class="rounded-xl border border-slate-800 bg-surface-900 px-4 py-3 min-w-[120px]">
+      <p class="text-xs uppercase tracking-wider text-slate-500">نشطة</p>
+      <p id="stat-active" class="mt-1 text-2xl font-semibold text-emerald-400">—</p>
+    </div>
+    <div class="rounded-xl border border-slate-800 bg-surface-900 px-4 py-3 min-w-[120px]">
+      <p class="text-xs uppercase tracking-wider text-slate-500">موقوفة</p>
+      <p id="stat-paused" class="mt-1 text-2xl font-semibold text-amber-300">—</p>
+    </div>
+    <div class="rounded-xl border border-slate-800 bg-surface-900 px-4 py-3 min-w-[120px]">
+      <p class="text-xs uppercase tracking-wider text-slate-500">الإجمالي</p>
+      <p id="stat-total" class="mt-1 text-2xl font-semibold text-accent-400">—</p>
+    </div>
+  </div>
+
+  <div id="alert" class="hidden rounded-lg border px-4 py-3 text-sm" role="alert"></div>
+
+  <div class="rounded-xl border border-slate-800 bg-surface-900 overflow-hidden shadow-xl shadow-black/20">
+    <div id="loading" class="flex items-center justify-center gap-3 py-16 text-slate-400">
+      <svg class="h-5 w-5 animate-spin" viewBox="0 0 24 24" fill="none">
+        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+      </svg>
+      جاري تحميل المهام…
+    </div>
+
+    <div id="empty-state" class="hidden py-16 text-center">
+      <p class="text-slate-300 font-medium">لا توجد مهام مجدولة</p>
+      <p class="mt-1 text-sm text-slate-500">أنشئ مهمة من طلب موجود أو من صفحة إدارة الطلبات.</p>
+    </div>
+
+    <div id="table-wrap" class="hidden overflow-x-auto">
+      <table class="min-w-full text-sm text-start">
+        <thead class="bg-surface-800/80 text-xs uppercase tracking-wider text-slate-400">
+          <tr>
+            <th class="px-4 py-3 font-medium">#</th>
+            <th class="px-4 py-3 font-medium">الخدمة</th>
+            <th class="px-4 py-3 font-medium">الكمية</th>
+            <th class="px-4 py-3 font-medium">التكرار</th>
+            <th class="px-4 py-3 font-medium">التنفيذ القادم</th>
+            <th class="px-4 py-3 font-medium">آخر تنفيذ</th>
+            <th class="px-4 py-3 font-medium">الحالة</th>
+            <th class="px-4 py-3 font-medium text-end">الإجراءات</th>
+          </tr>
+        </thead>
+        <tbody id="jobs-body" class="divide-y divide-slate-800/80"></tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- إنشاء مهمة -->
+<div id="create-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4" aria-hidden="true">
+  <div id="create-backdrop" class="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
+  <div class="relative w-full max-w-lg rounded-xl border border-slate-700 bg-surface-900 shadow-2xl p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+    <div class="flex items-start justify-between gap-3">
+      <div>
+        <h2 class="text-lg font-semibold text-white">مهمة تنفيذ دوري</h2>
+        <p class="text-sm text-slate-400 mt-1">بناءً على طلب موجود — يُخصم من رصيد الأدمن</p>
+      </div>
+      <button id="create-close" type="button" class="text-slate-400 hover:text-white text-xl leading-none" aria-label="إغلاق">×</button>
+    </div>
+
+    <div class="space-y-3">
+      <div>
+        <label for="form-order-search" class="block text-xs font-medium text-slate-400 mb-1">اختر طلباً مرجعياً</label>
+        <p class="text-[11px] text-slate-500 mb-2">ابحث بـ <strong>معرف المزوّد</strong> (الظاهر في صفحة الطلبات) أو برقم الطلب الداخلي — وليس رقم خدمة المزوّد.</p>
+        <div class="flex gap-2">
+          <input id="form-order-search" type="search" placeholder="مثال: 125644 أو اسم الخدمة…" class="flex-1 rounded-lg border border-slate-600 bg-surface-800 px-3 py-2 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-accent-500" />
+          <button id="form-order-search-btn" type="button" class="rounded-lg border border-slate-600 bg-surface-800 px-3 py-2 text-sm text-slate-200 hover:bg-surface-700 shrink-0">بحث</button>
+        </div>
+        <div id="form-order-results" class="hidden mt-2 max-h-44 overflow-y-auto rounded-lg border border-slate-700 divide-y divide-slate-800"></div>
+        <div id="form-order-selected" class="hidden mt-3 rounded-lg border border-emerald-500/30 bg-emerald-950/20 px-3 py-2 text-xs text-emerald-100/90"></div>
+        <input id="form-template-ref" type="hidden" value="" />
+      </div>
+      <div>
+        <label for="form-name" class="block text-xs font-medium text-slate-400 mb-1">اسم اختياري</label>
+        <input id="form-name" type="text" maxlength="200" placeholder="مثال: boost يومي للقناة" class="w-full rounded-lg border border-slate-600 bg-surface-800 px-3 py-2 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-accent-500" />
+      </div>
+      <div>
+        <span class="block text-xs font-medium text-slate-400 mb-2">نوع الكمية</span>
+        <div class="flex gap-4">
+          <label class="inline-flex items-center gap-2 text-sm text-slate-200">
+            <input type="radio" name="qty-mode" value="fixed" checked class="text-accent-500" /> ثابتة
+          </label>
+          <label class="inline-flex items-center gap-2 text-sm text-slate-200">
+            <input type="radio" name="qty-mode" value="range" class="text-accent-500" /> نطاق عشوائي
+          </label>
+        </div>
+      </div>
+      <div id="qty-fixed-wrap">
+        <label for="form-qty-fixed" class="block text-xs font-medium text-slate-400 mb-1">الكمية</label>
+        <input id="form-qty-fixed" type="number" min="1" value="60" class="w-full rounded-lg border border-slate-600 bg-surface-800 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-accent-500" />
+      </div>
+      <div id="qty-range-wrap" class="hidden grid grid-cols-2 gap-3">
+        <div>
+          <label for="form-qty-min" class="block text-xs font-medium text-slate-400 mb-1">من</label>
+          <input id="form-qty-min" type="number" min="1" value="40" class="w-full rounded-lg border border-slate-600 bg-surface-800 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-accent-500" />
+        </div>
+        <div>
+          <label for="form-qty-max" class="block text-xs font-medium text-slate-400 mb-1">إلى</label>
+          <input id="form-qty-max" type="number" min="1" value="100" class="w-full rounded-lg border border-slate-600 bg-surface-800 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-accent-500" />
+        </div>
+      </div>
+      <div>
+        <label for="form-interval" class="block text-xs font-medium text-slate-400 mb-1">كل كم يوم؟</label>
+        <select id="form-interval" class="w-full rounded-lg border border-slate-600 bg-surface-800 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-accent-500">
+          <option value="1">كل يوم</option>
+          <option value="2">كل يومين</option>
+          <option value="3">كل 3 أيام</option>
+          <option value="7">كل أسبوع</option>
+        </select>
+      </div>
+      <div>
+        <label for="form-first-run" class="block text-xs font-medium text-slate-400 mb-1">أول تنفيذ (اختياري — فارغ = فوراً)</label>
+        <input id="form-first-run" type="datetime-local" class="w-full rounded-lg border border-slate-600 bg-surface-800 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-accent-500" />
+      </div>
+    </div>
+
+    <p id="create-modal-error" class="hidden text-xs text-red-300 bg-red-950/30 border border-red-900/50 rounded-lg px-3 py-2"></p>
+
+    <div class="flex gap-2 justify-end pt-2">
+      <button id="create-cancel" type="button" class="rounded-lg border border-slate-600 px-4 py-2 text-sm text-slate-300 hover:bg-surface-800">إلغاء</button>
+      <button id="create-submit" type="button" class="rounded-lg bg-accent-600 hover:bg-accent-500 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">إنشاء</button>
+    </div>
+  </div>
+</div>
+
+<!-- تفاصيل / سجل -->
+<div id="detail-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4" aria-hidden="true">
+  <div id="detail-backdrop" class="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
+  <div class="relative w-full max-w-lg rounded-xl border border-slate-700 bg-surface-900 shadow-2xl p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+    <div class="flex items-start justify-between gap-3">
+      <div>
+        <h2 id="detail-title" class="text-lg font-semibold text-white">تفاصيل المهمة</h2>
+        <p id="detail-subtitle" class="text-sm text-slate-400 mt-1"></p>
+      </div>
+      <button id="detail-close" type="button" class="text-slate-400 hover:text-white text-xl leading-none">×</button>
+    </div>
+    <div id="detail-runs" class="text-sm space-y-2 max-h-48 overflow-y-auto"></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const ORDERS_API = "/api/orders";
+  const API = "/api/scheduled-orders";
+
+  const els = {
+    alert: document.getElementById("alert"),
+    loading: document.getElementById("loading"),
+    empty: document.getElementById("empty-state"),
+    tableWrap: document.getElementById("table-wrap"),
+    tbody: document.getElementById("jobs-body"),
+    statActive: document.getElementById("stat-active"),
+    statPaused: document.getElementById("stat-paused"),
+    statTotal: document.getElementById("stat-total"),
+    refreshBtn: document.getElementById("refresh-btn"),
+    refreshIcon: document.getElementById("refresh-icon"),
+    createBtn: document.getElementById("create-btn"),
+  };
+
+  const createModal = {
+    root: document.getElementById("create-modal"),
+    backdrop: document.getElementById("create-backdrop"),
+    close: document.getElementById("create-close"),
+    cancel: document.getElementById("create-cancel"),
+    submit: document.getElementById("create-submit"),
+    error: document.getElementById("create-modal-error"),
+    orderSearch: document.getElementById("form-order-search"),
+    orderSearchBtn: document.getElementById("form-order-search-btn"),
+    orderResults: document.getElementById("form-order-results"),
+    orderSelected: document.getElementById("form-order-selected"),
+    templateRef: document.getElementById("form-template-ref"),
+    name: document.getElementById("form-name"),
+    qtyFixedWrap: document.getElementById("qty-fixed-wrap"),
+    qtyRangeWrap: document.getElementById("qty-range-wrap"),
+    qtyFixed: document.getElementById("form-qty-fixed"),
+    qtyMin: document.getElementById("form-qty-min"),
+    qtyMax: document.getElementById("form-qty-max"),
+    interval: document.getElementById("form-interval"),
+    firstRun: document.getElementById("form-first-run"),
+  };
+
+  const detailModal = {
+    root: document.getElementById("detail-modal"),
+    backdrop: document.getElementById("detail-backdrop"),
+    close: document.getElementById("detail-close"),
+    title: document.getElementById("detail-title"),
+    subtitle: document.getElementById("detail-subtitle"),
+    runs: document.getElementById("detail-runs"),
+  };
+
+  let jobs = [];
+  let selectedTemplateOrder = null;
+  let searchResults = [];
+
+  function truncate(text, max = 40) {
+    const s = String(text || "");
+    return s.length <= max ? s : s.slice(0, max) + "…";
+  }
+
+  function renderOrderPickRow(order, index) {
+    const provider = order.provider_order_id
+      ? `<span class="font-mono text-accent-300">${escapeHtml(order.provider_order_id)}</span>`
+      : `<span class="text-slate-500">بدون معرف مزوّد</span>`;
+    return `
+      <button type="button" class="order-pick w-full text-start px-3 py-2 hover:bg-surface-800/80 transition" data-index="${index}">
+        <div class="flex items-center justify-between gap-2">
+          <span class="text-slate-200 text-sm font-medium truncate">${escapeHtml(order.service_name || "—")}</span>
+          <span class="text-[10px] text-slate-500 shrink-0">#${order.id}</span>
+        </div>
+        <div class="mt-0.5 text-[11px]">مزوّد: ${provider}</div>
+        <div class="text-[10px] text-slate-500 truncate">${escapeHtml(truncate(order.link, 50))}</div>
+      </button>
+    `;
+  }
+
+  function selectTemplateOrder(order) {
+    selectedTemplateOrder = order;
+    const ref = String(order.provider_order_id || order.id);
+    createModal.templateRef.value = ref;
+    createModal.orderSelected.classList.remove("hidden");
+    createModal.orderSelected.innerHTML = `
+      <p class="font-medium text-emerald-200">✓ طلب محدّد</p>
+      <p class="mt-1"><span class="text-slate-400">الخدمة:</span> ${escapeHtml(order.service_name)}</p>
+      <p><span class="text-slate-400">معرف المزوّد:</span> ${escapeHtml(order.provider_order_id || "—")} · <span class="text-slate-400">داخلي:</span> #${order.id}</p>
+      <p class="truncate"><span class="text-slate-400">الرابط:</span> ${escapeHtml(order.link)}</p>
+    `;
+    createModal.orderResults.classList.add("hidden");
+  }
+
+  async function searchTemplateOrders() {
+    const q = createModal.orderSearch.value.trim();
+    if (!q) {
+      createModal.error.textContent = "أدخل معرف المزوّد أو كلمة للبحث.";
+      createModal.error.classList.remove("hidden");
+      return;
+    }
+    createModal.error.classList.add("hidden");
+    createModal.orderSearchBtn.disabled = true;
+    try {
+      const data = await fetchJson(`${API}/template-search?q=${encodeURIComponent(q)}&limit=10`);
+      const orders = data.orders || [];
+      if (!orders.length) {
+        createModal.orderResults.classList.remove("hidden");
+        createModal.orderResults.innerHTML = '<p class="px-3 py-4 text-sm text-slate-500 text-center">لا توجد نتائج — جرّب معرف المزوّد من عمود «رقم الطلب» في صفحة الطلبات.</p>';
+        return;
+      }
+      if (orders.length === 1) {
+        searchResults = orders;
+        selectTemplateOrder(orders[0]);
+        return;
+      }
+      searchResults = orders;
+      createModal.orderResults.classList.remove("hidden");
+      createModal.orderResults.innerHTML = orders.map((o, i) => renderOrderPickRow(o, i)).join("");
+    } catch (err) {
+      createModal.error.textContent = err.message || "فشل البحث";
+      createModal.error.classList.remove("hidden");
+    } finally {
+      createModal.orderSearchBtn.disabled = false;
+    }
+  }
+
+  async function preselectOrderByInternalId(orderId) {
+    try {
+      const data = await fetchJson(`${ORDERS_API}?search=${encodeURIComponent(String(orderId))}&limit=5`);
+      const match = (data.orders || []).find((o) => Number(o.id) === Number(orderId));
+      if (match) {
+        createModal.orderSearch.value = match.provider_order_id || String(match.id);
+        selectTemplateOrder(match);
+      } else {
+        createModal.templateRef.value = String(orderId);
+        createModal.orderSearch.value = String(orderId);
+      }
+    } catch (_err) {
+      createModal.templateRef.value = String(orderId);
+      createModal.orderSearch.value = String(orderId);
+    }
+  }
+
+  function escapeHtml(text) {
+    const d = document.createElement("div");
+    d.textContent = String(text ?? "");
+    return d.innerHTML;
+  }
+
+  function showAlert(message, type = "error") {
+    els.alert.textContent = message;
+    els.alert.className = "rounded-lg border px-4 py-3 text-sm " + (
+      type === "success"
+        ? "border-emerald-800 bg-emerald-950/40 text-emerald-200"
+        : "border-red-800 bg-red-950/40 text-red-200"
+    );
+    els.alert.classList.remove("hidden");
+    setTimeout(() => els.alert.classList.add("hidden"), 6000);
+  }
+
+  function parseErrorDetail(body) {
+    const detail = body?.detail;
+    if (!detail) return "فشل الطلب.";
+    if (typeof detail === "string") return detail;
+    if (detail.message) return detail.message;
+    return "حدث خطأ.";
+  }
+
+  async function fetchJson(url, options) {
+    const response = await fetch(url, { credentials: "same-origin", ...options });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(parseErrorDetail(body));
+    return body;
+  }
+
+  function statusBadge(status, label) {
+    const colors = {
+      active: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
+      paused: "bg-amber-500/15 text-amber-300 border-amber-500/30",
+      stopped: "bg-slate-500/15 text-slate-400 border-slate-600/30",
+    };
+    const cls = colors[status] || colors.stopped;
+    return `<span class="inline-flex rounded-full border px-2 py-0.5 text-[11px] font-medium ${cls}">${escapeHtml(label || status)}</span>`;
+  }
+
+  function intervalLabel(days) {
+    const d = Number(days);
+    if (d === 1) return "يومياً";
+    if (d === 2) return "كل يومين";
+    return `كل ${d} أيام`;
+  }
+
+  function formatDate(value) {
+    if (!value) return "—";
+    const dt = new Date(String(value).replace(" ", "T") + "Z");
+    if (Number.isNaN(dt.getTime())) return escapeHtml(value);
+    return dt.toLocaleString("ar-MA", { dateStyle: "short", timeStyle: "short" });
+  }
+
+  function renderRow(job) {
+    const title = job.name || job.service_name || `#${job.id}`;
+    const actions = [];
+    if (job.status === "active") {
+      actions.push(`<button type="button" data-action="pause" data-id="${job.id}" class="action-btn text-amber-300 hover:underline">إيقاف</button>`);
+    }
+    if (job.status === "paused") {
+      actions.push(`<button type="button" data-action="resume" data-id="${job.id}" class="action-btn text-emerald-300 hover:underline">استئناف</button>`);
+    }
+    if (job.status !== "stopped") {
+      actions.push(`<button type="button" data-action="run" data-id="${job.id}" class="action-btn text-accent-300 hover:underline">الآن</button>`);
+    }
+    actions.push(`<button type="button" data-action="detail" data-id="${job.id}" class="action-btn text-slate-300 hover:underline">سجل</button>`);
+    actions.push(`<button type="button" data-action="delete" data-id="${job.id}" class="action-btn text-red-300 hover:underline">حذف</button>`);
+
+    return `
+      <tr class="hover:bg-surface-800/40" data-job-id="${job.id}">
+        <td class="px-4 py-3 font-mono text-xs text-slate-400">${job.id}</td>
+        <td class="px-4 py-3">
+          <div class="text-slate-200 font-medium truncate max-w-[160px]" title="${escapeHtml(title)}">${escapeHtml(title)}</div>
+          <div class="text-[10px] text-slate-500 mt-0.5">مرجع: #${job.template_order_id || "—"}</div>
+        </td>
+        <td class="px-4 py-3 text-slate-300">${escapeHtml(job.quantity_label)}</td>
+        <td class="px-4 py-3 text-slate-300">${intervalLabel(job.interval_days)}</td>
+        <td class="px-4 py-3 text-xs text-slate-400 whitespace-nowrap">${formatDate(job.next_run_at)}</td>
+        <td class="px-4 py-3 text-xs text-slate-400 whitespace-nowrap">
+          ${formatDate(job.last_run_at)}
+          ${job.last_created_order_id ? `<div class="text-[10px] text-accent-400">طلب #${job.last_created_order_id}</div>` : ""}
+        </td>
+        <td class="px-4 py-3">${statusBadge(job.status, job.status_label)}</td>
+        <td class="px-4 py-3 text-end">
+          <div class="flex flex-wrap gap-2 justify-end text-xs">${actions.join("")}</div>
+        </td>
+      </tr>
+    `;
+  }
+
+  function updateStats(list) {
+    const active = list.filter((j) => j.status === "active").length;
+    const paused = list.filter((j) => j.status === "paused").length;
+    els.statActive.textContent = String(active);
+    els.statPaused.textContent = String(paused);
+    els.statTotal.textContent = String(list.length);
+  }
+
+  function renderTable(list) {
+    jobs = list;
+    updateStats(list);
+    els.loading.classList.add("hidden");
+    if (!list.length) {
+      els.empty.classList.remove("hidden");
+      els.tableWrap.classList.add("hidden");
+      return;
+    }
+    els.empty.classList.add("hidden");
+    els.tableWrap.classList.remove("hidden");
+    els.tbody.innerHTML = list.map(renderRow).join("");
+  }
+
+  async function loadJobs() {
+    els.refreshBtn.disabled = true;
+    els.refreshIcon.classList.add("animate-spin");
+    try {
+      const data = await fetchJson(API);
+      renderTable(data.jobs || []);
+    } catch (err) {
+      showAlert(err.message || "تعذّر التحميل");
+      els.loading.classList.add("hidden");
+    } finally {
+      els.refreshBtn.disabled = false;
+      els.refreshIcon.classList.remove("animate-spin");
+    }
+  }
+
+  function getQtyMode() {
+    const checked = document.querySelector('input[name="qty-mode"]:checked');
+    return checked ? checked.value : "fixed";
+  }
+
+  function toggleQtyMode() {
+    const mode = getQtyMode();
+    createModal.qtyFixedWrap.classList.toggle("hidden", mode !== "fixed");
+    createModal.qtyRangeWrap.classList.toggle("hidden", mode !== "range");
+  }
+
+  function openCreateModal(templateOrderId) {
+    createModal.error.classList.add("hidden");
+    createModal.orderResults.classList.add("hidden");
+    createModal.orderSelected.classList.add("hidden");
+    createModal.templateRef.value = "";
+    createModal.orderSearch.value = "";
+    selectedTemplateOrder = null;
+    createModal.root.classList.remove("hidden");
+    if (templateOrderId) {
+      preselectOrderByInternalId(templateOrderId);
+    }
+  }
+
+  function closeCreateModal() {
+    createModal.root.classList.add("hidden");
+  }
+
+  function toIsoFirstRun(localValue) {
+    if (!localValue) return null;
+    const dt = new Date(localValue);
+    if (Number.isNaN(dt.getTime())) return null;
+    return dt.toISOString();
+  }
+
+  async function submitCreate() {
+    createModal.error.classList.add("hidden");
+    const ref = createModal.templateRef.value.trim() || createModal.orderSearch.value.trim();
+    if (!ref) {
+      createModal.error.textContent = "اختر طلباً من نتائج البحث أولاً.";
+      createModal.error.classList.remove("hidden");
+      return;
+    }
+    createModal.submit.disabled = true;
+    const mode = getQtyMode();
+    const payload = {
+      template_order_ref: ref,
+      quantity_mode: mode,
+      interval_days: Number(createModal.interval.value),
+      name: createModal.name.value.trim() || null,
+      first_run_at: toIsoFirstRun(createModal.firstRun.value),
+    };
+    if (mode === "fixed") {
+      payload.quantity_fixed = Number(createModal.qtyFixed.value);
+    } else {
+      payload.quantity_min = Number(createModal.qtyMin.value);
+      payload.quantity_max = Number(createModal.qtyMax.value);
+    }
+    try {
+      await fetchJson(API, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      closeCreateModal();
+      showAlert("تم إنشاء المهمة بنجاح.", "success");
+      await loadJobs();
+    } catch (err) {
+      createModal.error.textContent = err.message || "فشل الإنشاء";
+      createModal.error.classList.remove("hidden");
+    } finally {
+      createModal.submit.disabled = false;
+    }
+  }
+
+  async function jobAction(action, id) {
+    const map = {
+      pause: { method: "POST", url: `${API}/${id}/pause` },
+      resume: { method: "POST", url: `${API}/${id}/resume` },
+      run: { method: "POST", url: `${API}/${id}/run-now` },
+      delete: { method: "DELETE", url: `${API}/${id}` },
+    };
+    const cfg = map[action];
+    if (!cfg) return;
+    if (action === "delete" && !confirm("حذف هذه المهمة نهائياً؟")) return;
+    try {
+      const result = await fetchJson(cfg.url, { method: cfg.method });
+      if (action === "run") {
+        if (result.ok) {
+          showAlert(`تم التنفيذ — طلب #${result.order_id} بكمية ${result.quantity}`, "success");
+        } else {
+          showAlert(result.error || "فشل التنفيذ");
+        }
+      } else {
+        showAlert("تم بنجاح.", "success");
+      }
+      await loadJobs();
+    } catch (err) {
+      showAlert(err.message || "فشل الإجراء");
+    }
+  }
+
+  async function showDetail(id) {
+    try {
+      const data = await fetchJson(`${API}/${id}`);
+      const job = data.job;
+      detailModal.title.textContent = job.name || job.service_name || `مهمة #${job.id}`;
+      detailModal.subtitle.textContent = `${intervalLabel(job.interval_days)} · ${job.quantity_label} · ${job.runs_count} تنفيذ`;
+      const runs = data.runs || [];
+      if (!runs.length) {
+        detailModal.runs.innerHTML = '<p class="text-slate-500">لا يوجد سجل بعد.</p>';
+      } else {
+        detailModal.runs.innerHTML = runs.map((r) => `
+          <div class="rounded-lg border border-slate-800 bg-surface-800/50 px-3 py-2">
+            <div class="flex justify-between gap-2">
+              <span class="${r.status === "success" ? "text-emerald-300" : "text-red-300"}">${r.status === "success" ? "نجاح" : "فشل"}</span>
+              <span class="text-slate-500 text-xs">${formatDate(r.ran_at)}</span>
+            </div>
+            ${r.order_id ? `<div class="text-xs text-slate-400 mt-1">طلب #${r.order_id} · كمية ${r.quantity_used}</div>` : ""}
+            ${r.error_message ? `<div class="text-xs text-red-300/80 mt-1">${escapeHtml(r.error_message)}</div>` : ""}
+          </div>
+        `).join("");
+      }
+      detailModal.root.classList.remove("hidden");
+    } catch (err) {
+      showAlert(err.message || "تعذّر تحميل التفاصيل");
+    }
+  }
+
+  document.querySelectorAll('input[name="qty-mode"]').forEach((el) => {
+    el.addEventListener("change", toggleQtyMode);
+  });
+
+  els.createBtn.addEventListener("click", () => openCreateModal());
+  createModal.orderSearchBtn.addEventListener("click", searchTemplateOrders);
+  createModal.orderSearch.addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter") {
+      ev.preventDefault();
+      searchTemplateOrders();
+    }
+  });
+  createModal.orderResults.addEventListener("click", (ev) => {
+    const btn = ev.target.closest(".order-pick");
+    if (!btn) return;
+    const order = searchResults[Number(btn.dataset.index)];
+    if (order) selectTemplateOrder(order);
+  });
+  createModal.backdrop.addEventListener("click", closeCreateModal);
+  createModal.close.addEventListener("click", closeCreateModal);
+  createModal.cancel.addEventListener("click", closeCreateModal);
+  createModal.submit.addEventListener("click", submitCreate);
+  detailModal.backdrop.addEventListener("click", () => detailModal.root.classList.add("hidden"));
+  detailModal.close.addEventListener("click", () => detailModal.root.classList.add("hidden"));
+  els.refreshBtn.addEventListener("click", loadJobs);
+
+  els.tbody.addEventListener("click", (ev) => {
+    const btn = ev.target.closest(".action-btn");
+    if (!btn) return;
+    const action = btn.dataset.action;
+    const id = Number(btn.dataset.id);
+    if (action === "detail") showDetail(id);
+    else jobAction(action, id);
+  });
+
+  const params = new URLSearchParams(window.location.search);
+  const fromOrder = params.get("from_order");
+  if (fromOrder) {
+    openCreateModal(Number(fromOrder));
+    history.replaceState({}, "", "/scheduled-orders");
+  }
+
+  toggleQtyMode();
+  loadJobs();
+</script>
+{% endblock %}

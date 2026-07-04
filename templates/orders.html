@@ -354,6 +354,20 @@
 
     </button>
 
+    <a
+
+      id="schedule-order-link"
+
+      href="/scheduled-orders"
+
+      class="block w-full text-center rounded-lg border border-violet-500/40 bg-violet-500/10 hover:bg-violet-500/20 px-4 py-2 text-sm font-medium text-violet-200 transition"
+
+    >
+
+      جدولة تنفيذ دوري ↗
+
+    </a>
+
   </div>
 
 </div>
@@ -829,6 +843,14 @@
     }
 
     updateRefundWarning();
+
+    const scheduleLink = document.getElementById("schedule-order-link");
+
+    if (scheduleLink && order.id) {
+
+      scheduleLink.href = `/scheduled-orders?from_order=${order.id}`;
+
+    }
 
   }
 

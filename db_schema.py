@@ -158,6 +158,57 @@ CREATE INDEX IF NOT EXISTS idx_admin_notifications_category
 ON admin_notifications (category, created_at DESC);
 """
 
+SCHEDULED_ORDERS_DDL = """
+CREATE TABLE IF NOT EXISTS scheduled_orders (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT,
+    template_order_id INTEGER,
+    user_id INTEGER NOT NULL,
+    service_id TEXT NOT NULL,
+    service_name TEXT NOT NULL DEFAULT '',
+    link TEXT NOT NULL,
+    provider_slug TEXT NOT NULL DEFAULT 'gozibra',
+    api_account TEXT NOT NULL DEFAULT 'default',
+    fulfillment_mode TEXT NOT NULL DEFAULT 'auto',
+    quantity_mode TEXT NOT NULL DEFAULT 'fixed',
+    quantity_fixed INTEGER,
+    quantity_min INTEGER,
+    quantity_max INTEGER,
+    interval_days INTEGER NOT NULL DEFAULT 1,
+    next_run_at TEXT NOT NULL,
+    last_run_at TEXT,
+    last_created_order_id INTEGER,
+    runs_count INTEGER NOT NULL DEFAULT 0,
+    consecutive_failures INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'active',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    stopped_at TEXT
+);
+"""
+
+SCHEDULED_ORDERS_INDEX = """
+CREATE INDEX IF NOT EXISTS idx_scheduled_orders_due
+ON scheduled_orders (status, next_run_at);
+"""
+
+SCHEDULED_ORDER_RUNS_DDL = """
+CREATE TABLE IF NOT EXISTS scheduled_order_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    scheduled_order_id INTEGER NOT NULL,
+    order_id INTEGER,
+    quantity_used INTEGER,
+    status TEXT NOT NULL,
+    error_message TEXT,
+    ran_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (scheduled_order_id) REFERENCES scheduled_orders(id)
+);
+"""
+
+SCHEDULED_ORDER_RUNS_INDEX = """
+CREATE INDEX IF NOT EXISTS idx_scheduled_order_runs_job
+ON scheduled_order_runs (scheduled_order_id, ran_at DESC);
+"""
+
 _ORDERS_STATUS_CHANGED_MIGRATION = (
     "ALTER TABLE orders ADD COLUMN status_changed_at TEXT"
 )
@@ -350,4 +401,13 @@ async def ensure_admin_notifications_table() -> None:
     async with get_db() as db:
         await db.execute(ADMIN_NOTIFICATIONS_DDL)
         await db.executescript(ADMIN_NOTIFICATIONS_INDEXES)
+        await db.commit()
+
+
+async def ensure_scheduled_orders_tables() -> None:
+    async with get_db() as db:
+        await db.execute(SCHEDULED_ORDERS_DDL)
+        await db.execute(SCHEDULED_ORDERS_INDEX)
+        await db.execute(SCHEDULED_ORDER_RUNS_DDL)
+        await db.execute(SCHEDULED_ORDER_RUNS_INDEX)
         await db.commit()

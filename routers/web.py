@@ -128,6 +128,20 @@ async def manual_orders_page(request: Request):
     )
 
 
+@router.get("/scheduled-orders")
+async def scheduled_orders_page(request: Request):
+    return templates.TemplateResponse(
+        request,
+        "scheduled_orders.html",
+        {
+            "page_title": "لوحة تحكم سولديوم",
+            "active_nav": "scheduled_orders",
+            "page_heading": "الطلبات المجدولة",
+            "page_subheading": "تنفيذ دوري لطلبات مبنية على طلبات موجودة — كمية ثابتة أو عشوائية",
+        },
+    )
+
+
 @router.get("/withdrawals")
 async def withdrawals_page(request: Request):
     return templates.TemplateResponse(

@@ -138,6 +138,34 @@ class SendManualOrderNotifyRequest(BaseModel):
     )
 
 
+class CreateScheduledOrderRequest(BaseModel):
+    template_order_ref: str | None = Field(
+        default=None,
+        max_length=100,
+        description="معرف المزوّد أو رقم الطلب الداخلي",
+    )
+    template_order_id: int | None = Field(
+        default=None,
+        ge=1,
+        description="(قديم) رقم الطلب الداخلي — يُفضّل template_order_ref",
+    )
+    quantity_mode: str = Field(
+        default="fixed",
+        pattern="^(fixed|range)$",
+        description="fixed = كمية ثابتة، range = نطاق عشوائي",
+    )
+    quantity_fixed: int | None = Field(default=None, ge=1)
+    quantity_min: int | None = Field(default=None, ge=1)
+    quantity_max: int | None = Field(default=None, ge=1)
+    interval_days: int = Field(default=1, ge=1, le=365, description="كل كم يوم")
+    first_run_at: str | None = Field(
+        default=None,
+        max_length=40,
+        description="وقت التنفيذ الأول (ISO) — فارغ = فوراً",
+    )
+    name: str | None = Field(default=None, max_length=200, description="اسم اختياري للمهمة")
+
+
 class CreateProviderRequest(BaseModel):
     slug: str = Field(..., min_length=1, max_length=50)
     name: str = Field(..., min_length=1, max_length=200)

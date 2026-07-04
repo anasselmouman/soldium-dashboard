@@ -20,6 +20,7 @@ from database_connector import DB_PATH, count_users
 from db_schema import (
     ensure_admin_alerts_table,
     ensure_admin_notifications_table,
+    ensure_scheduled_orders_tables,
     ensure_smm_services_table,
     ensure_timed_announcements_tables,
 )
@@ -36,6 +37,7 @@ from routers import (
     api_orders,
     api_provider,
     api_providers,
+    api_scheduled_orders,
     api_stats,
     api_users,
     api_withdrawals,
@@ -113,6 +115,7 @@ async def _run_schema_migrations() -> None:
         ("scheduled_deletions", ensure_scheduled_deletions_table),
         ("admin_alerts", ensure_admin_alerts_table),
         ("admin_notifications", ensure_admin_notifications_table),
+        ("scheduled_orders", ensure_scheduled_orders_tables),
     )
     for name, migrate in migrations:
         try:
@@ -129,6 +132,7 @@ async def lifespan(_app: FastAPI):
     deletion_task: asyncio.Task[None] | None = None
     alerts_task: asyncio.Task[None] | None = None
     alerts_bootstrap: asyncio.Task[None] | None = None
+    scheduled_orders_task: asyncio.Task[None] | None = None
     await _run_schema_migrations()
     try:
         backfill_task = asyncio.create_task(_maybe_backfill_provider_rates())
@@ -137,6 +141,9 @@ async def lifespan(_app: FastAPI):
         from admin_alerts import run_alert_scan_loop
 
         alerts_task = asyncio.create_task(run_alert_scan_loop())
+        from scheduled_orders import run_scheduled_orders_worker
+
+        scheduled_orders_task = asyncio.create_task(run_scheduled_orders_worker())
     except Exception as exc:
         _startup_log.warning("Dashboard background workers failed to start: %s", exc)
     yield
@@ -156,6 +163,10 @@ async def lifespan(_app: FastAPI):
         backfill_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await backfill_task
+    if scheduled_orders_task is not None:
+        scheduled_orders_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await scheduled_orders_task
 
 
 app = FastAPI(
@@ -187,6 +198,7 @@ app.include_router(api_users.router)
 app.include_router(api_orders.router)
 app.include_router(api_withdrawals.router)
 app.include_router(api_manual_orders.router)
+app.include_router(api_scheduled_orders.router)
 app.include_router(api_broadcast.router)
 
 
