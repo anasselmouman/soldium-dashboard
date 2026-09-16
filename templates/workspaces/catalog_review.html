@@ -1,0 +1,205 @@
+{% extends "base.html" %}
+
+{% block title %}{{ page_title }}{% endblock %}
+
+{% block head %}
+<style>
+  .cat-review-counts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.65rem;
+  }
+  .cat-review-count {
+    min-width: 7.5rem;
+    padding: 0.7rem 0.85rem;
+    border-radius: 12px;
+    border: 1px solid #243047;
+    background: rgba(15, 23, 42, 0.55);
+  }
+  .cat-review-count .n {
+    font-size: 1.25rem;
+    font-weight: 800;
+    color: #f8fafc;
+  }
+  .cat-review-count .l {
+    font-size: 0.78rem;
+    color: #94a3b8;
+    margin-top: 0.15rem;
+  }
+  .cat-review-card {
+    border: 1px solid #243047;
+    border-radius: 14px;
+    background: rgba(15, 23, 42, 0.55);
+    padding: 0.9rem 1rem;
+  }
+  .cat-review-issues {
+    margin: 0.35rem 0 0;
+    padding-inline-start: 1.1rem;
+    color: #fca5a5;
+    font-size: 0.88rem;
+  }
+  .cat-review-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    border-bottom: 1px solid #243047;
+    padding-bottom: 0.55rem;
+  }
+  .cat-review-tab {
+    border-radius: 999px;
+    border: 1px solid #334155;
+    background: transparent;
+    color: #94a3b8;
+    padding: 0.35rem 0.85rem;
+    font-size: 0.82rem;
+  }
+  .cat-review-tab[aria-selected="true"] {
+    background: rgba(56, 189, 248, 0.12);
+    border-color: #38bdf8;
+    color: #e0f2fe;
+  }
+  .cat-field-change {
+    border: 1px solid #334155;
+    border-radius: 10px;
+    padding: 0.45rem 0.6rem;
+    font-size: 0.78rem;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<section class="space-y-4" id="catalog-review-root" data-api-base="/api/soldium-catalog">
+  <div id="cat-alert" class="hidden rounded-lg border px-4 py-3 text-sm" role="alert"></div>
+
+  <div class="soldium-cut-card p-4 space-y-3">
+    <div>
+      <h2 class="text-base font-semibold text-white m-0">المراجعة الإدارية</h2>
+      <p class="text-xs text-slate-400 mt-1 mb-0">
+        جاهزية خدمات Soldium منفصلة عن تغييرات كتالوج المزود. الربط إداري صريح، وتطبيق مصدر التنفيذ خطوة منفصلة مشروطة بالجاهزية.
+      </p>
+    </div>
+
+    <div class="cat-review-tabs" role="tablist" aria-label="أقسام المراجعة">
+      <button type="button" class="cat-review-tab" role="tab" id="tab-readiness"
+              data-review-tab="readiness" aria-selected="true" aria-controls="panel-readiness">
+        جاهزية الخدمات
+      </button>
+      <button type="button" class="cat-review-tab" role="tab" id="tab-provider"
+              data-review-tab="provider" aria-selected="false" aria-controls="panel-provider">
+        تغييرات كتالوج المزود
+      </button>
+    </div>
+
+    <div id="panel-readiness" role="tabpanel" aria-labelledby="tab-readiness">
+      <p class="text-xs text-slate-500 mb-3">
+        تقييم جاهزية خدمات الكاتالوج للنشر لاحقًا — دون نشر فعلي في هذه المرحلة.
+      </p>
+      <div class="cat-review-counts" id="review-counts" aria-live="polite"></div>
+
+      <div class="flex flex-wrap gap-2 items-end mt-3">
+        <label class="text-xs text-slate-500 grid gap-1">
+          الجاهزية
+          <select id="review-filter-readiness" class="rounded-lg border border-slate-600 bg-surface-800 px-3 py-2 text-sm">
+            <option value="needs_review" selected>تحتاج مراجعة</option>
+            <option value="ready">جاهزة</option>
+            <option value="">الكل</option>
+          </select>
+        </label>
+        <label class="text-xs text-slate-500 grid gap-1">
+          الحالة
+          <select id="review-filter-status" class="rounded-lg border border-slate-600 bg-surface-800 px-3 py-2 text-sm">
+            <option value="">الكل</option>
+            <option value="draft">مسودة</option>
+            <option value="active">نشطة</option>
+            <option value="archived">مؤرشفة</option>
+          </select>
+        </label>
+        <label class="text-xs text-slate-500 grid gap-1">
+          نوع الخدمة
+          <select id="review-filter-type" class="rounded-lg border border-slate-600 bg-surface-800 px-3 py-2 text-sm">
+            <option value="">الكل</option>
+          </select>
+        </label>
+        <label class="text-xs text-slate-500 grid gap-1">
+          نمط الطلب
+          <select id="review-filter-ordering" class="rounded-lg border border-slate-600 bg-surface-800 px-3 py-2 text-sm">
+            <option value="">الكل</option>
+          </select>
+        </label>
+        <label class="text-xs text-slate-500 grid gap-1 flex-1 min-w-[160px]">
+          بحث
+          <input type="search" id="review-filter-search" placeholder="اسم أو معرّف المزود…"
+                 class="rounded-lg border border-slate-600 bg-surface-800 px-3 py-2 text-sm w-full" />
+        </label>
+        <button type="button" class="rounded-lg border border-slate-600 px-3 py-2 text-sm" id="review-filter-apply">تطبيق</button>
+      </div>
+
+      <div class="space-y-3 mt-3" id="review-list"></div>
+      <div class="flex justify-between text-xs text-slate-500 mt-2">
+        <span id="review-page-info"></span>
+        <div class="flex gap-2">
+          <button type="button" id="review-prev">السابق</button>
+          <button type="button" id="review-next">التالي</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="panel-provider" role="tabpanel" aria-labelledby="tab-provider" class="hidden">
+      <p class="text-xs text-amber-200/90 mb-3">
+        هذه تغييرات اكتشفها المزود، وليست تغييرات تم تطبيقها على كتالوج Soldium.
+        يمكن إنشاء ربط إداري صريح بخدمة Soldium موجودة — دون تطبيق مصدر تنفيذ أو إنشاء خدمة تلقائيًا.
+      </p>
+      <div class="cat-review-counts" id="prov-review-counts" aria-live="polite"></div>
+
+      <div class="flex flex-wrap gap-2 items-end mt-3">
+        <label class="text-xs text-slate-500 grid gap-1">
+          المزود
+          <select id="prov-filter-provider" class="rounded-lg border border-slate-600 bg-surface-800 px-3 py-2 text-sm">
+            <option value="">الكل</option>
+          </select>
+        </label>
+        <label class="text-xs text-slate-500 grid gap-1">
+          الحساب
+          <select id="prov-filter-account" class="rounded-lg border border-slate-600 bg-surface-800 px-3 py-2 text-sm">
+            <option value="">الكل</option>
+          </select>
+        </label>
+        <label class="text-xs text-slate-500 grid gap-1">
+          نوع التغيير
+          <select id="prov-filter-change" class="rounded-lg border border-slate-600 bg-surface-800 px-3 py-2 text-sm">
+            <option value="">الكل</option>
+            <option value="new">جديدة</option>
+            <option value="changed">متغيرة</option>
+            <option value="missing">مفقودة</option>
+          </select>
+        </label>
+        <label class="text-xs text-slate-500 grid gap-1 flex-1 min-w-[160px]">
+          بحث
+          <input type="search" id="prov-filter-search"
+                 placeholder="معرّف الخدمة أو الاسم لدى المزود…"
+                 class="rounded-lg border border-slate-600 bg-surface-800 px-3 py-2 text-sm w-full" />
+        </label>
+        <button type="button" class="rounded-lg border border-slate-600 px-3 py-2 text-sm" id="prov-filter-apply">تطبيق</button>
+      </div>
+
+      <div class="space-y-3 mt-3" id="prov-review-list"></div>
+      <div class="flex justify-between text-xs text-slate-500 mt-2">
+        <span id="prov-page-info"></span>
+        <div class="flex gap-2">
+          <button type="button" id="prov-prev">السابق</button>
+          <button type="button" id="prov-next">التالي</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div id="modal-root" class="hidden" aria-hidden="true"></div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/catalog_core_ui.js"></script>
+<script>
+  CatalogCoreUI.mountReview();
+</script>
+{% endblock %}

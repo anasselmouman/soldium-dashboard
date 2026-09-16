@@ -77,6 +77,7 @@ def parse_float_loose(value: object) -> float | None:
 
 
 def parse_provider_service_id(entry: dict[str, Any]) -> int | None:
+    """Legacy int parser used by smm_services sync. Prefer opaque string IDs for Catalog."""
     if not isinstance(entry, dict):
         return None
     raw = _case_insensitive_get(entry, *_SERVICE_ID_KEYS)
@@ -87,6 +88,17 @@ def parse_provider_service_id(entry: dict[str, Any]) -> int | None:
     except (TypeError, ValueError):
         return None
     return pid if pid > 0 else None
+
+
+def parse_provider_external_service_id(entry: dict[str, Any]) -> str | None:
+    """Opaque external service id — never coerce to int."""
+    if not isinstance(entry, dict):
+        return None
+    raw = _case_insensitive_get(entry, *_SERVICE_ID_KEYS)
+    if raw is None:
+        return None
+    text = str(raw).strip()
+    return text or None
 
 
 def normalize_provider_services_list(data: Any) -> list[dict[str, Any]]:
@@ -101,8 +113,11 @@ def normalize_provider_services_list(data: Any) -> list[dict[str, Any]]:
             nested = data.get(key)
             if isinstance(nested, list):
                 return [item for item in nested if isinstance(item, dict)]
-        # Single service object
-        if parse_provider_service_id(data) is not None:
+        # Single service object (opaque id or legacy int id)
+        if (
+            parse_provider_external_service_id(data) is not None
+            or parse_provider_service_id(data) is not None
+        ):
             return [data]
 
     return []

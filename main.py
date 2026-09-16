@@ -22,6 +22,7 @@ from db_schema import (
     ensure_admin_notifications_table,
     ensure_scheduled_orders_tables,
     ensure_smm_services_table,
+    ensure_soldium_catalog_tables,
     ensure_timed_announcements_tables,
 )
 from message_deletions import ensure_scheduled_deletions_table, run_deletion_worker
@@ -31,6 +32,7 @@ from routers import (
     api_admin_notifications,
     api_analytics,
     api_broadcast,
+    api_catalog_core,
     api_deposits,
     api_manual_orders,
     api_services,
@@ -116,6 +118,7 @@ async def _run_schema_migrations() -> None:
         ("admin_alerts", ensure_admin_alerts_table),
         ("admin_notifications", ensure_admin_notifications_table),
         ("scheduled_orders", ensure_scheduled_orders_tables),
+        ("soldium_catalog", ensure_soldium_catalog_tables),
     )
     for name, migrate in migrations:
         try:
@@ -193,6 +196,7 @@ app.include_router(api_analytics.router)
 app.include_router(api_provider.router)
 app.include_router(api_providers.router)
 app.include_router(api_services.router)
+app.include_router(api_catalog_core.router)
 app.include_router(api_deposits.router)
 app.include_router(api_users.router)
 app.include_router(api_orders.router)

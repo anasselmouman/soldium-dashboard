@@ -170,6 +170,8 @@ CREATE TABLE IF NOT EXISTS scheduled_orders (
     provider_slug TEXT NOT NULL DEFAULT 'gozibra',
     api_account TEXT NOT NULL DEFAULT 'default',
     fulfillment_mode TEXT NOT NULL DEFAULT 'auto',
+    -- Phase 9B.8: NULL = Gen-0 (live SKU lookup); non-NULL = Gen-1 frozen identity.
+    external_service_id TEXT,
     quantity_mode TEXT NOT NULL DEFAULT 'fixed',
     quantity_fixed INTEGER,
     quantity_min INTEGER,
@@ -190,6 +192,10 @@ SCHEDULED_ORDERS_INDEX = """
 CREATE INDEX IF NOT EXISTS idx_scheduled_orders_due
 ON scheduled_orders (status, next_run_at);
 """
+
+_SCHEDULED_ORDERS_EXTERNAL_ID_MIGRATION = (
+    "ALTER TABLE scheduled_orders ADD COLUMN external_service_id TEXT"
+)
 
 SCHEDULED_ORDER_RUNS_DDL = """
 CREATE TABLE IF NOT EXISTS scheduled_order_runs (
@@ -237,6 +243,14 @@ _ORDERS_PROVIDER_SLUG_MIGRATION = (
     "ALTER TABLE orders ADD COLUMN provider_slug TEXT NOT NULL DEFAULT 'gozibra'"
 )
 
+_ORDERS_CATALOG_ID_MIGRATION = "ALTER TABLE orders ADD COLUMN catalog_id TEXT"
+
+_ORDERS_EXTERNAL_SNAPSHOT_MIGRATION = (
+    "ALTER TABLE orders ADD COLUMN external_service_id_snapshot TEXT"
+)
+
+_ORDERS_NORMALIZED_LINK_MIGRATION = "ALTER TABLE orders ADD COLUMN normalized_link TEXT"
+
 
 async def _table_columns(db, table: str) -> set[str]:
     async with db.execute(f"PRAGMA table_info([{table}])") as cursor:
@@ -275,6 +289,21 @@ async def ensure_smm_services_table() -> None:
         if "provider_slug" not in order_cols:
             try:
                 await db.execute(_ORDERS_PROVIDER_SLUG_MIGRATION)
+            except Exception:
+                pass
+        if "catalog_id" not in order_cols:
+            try:
+                await db.execute(_ORDERS_CATALOG_ID_MIGRATION)
+            except Exception:
+                pass
+        if "external_service_id_snapshot" not in order_cols:
+            try:
+                await db.execute(_ORDERS_EXTERNAL_SNAPSHOT_MIGRATION)
+            except Exception:
+                pass
+        if "normalized_link" not in order_cols:
+            try:
+                await db.execute(_ORDERS_NORMALIZED_LINK_MIGRATION)
             except Exception:
                 pass
         if "status_changed_at" not in order_cols:
@@ -410,4 +439,16 @@ async def ensure_scheduled_orders_tables() -> None:
         await db.execute(SCHEDULED_ORDERS_INDEX)
         await db.execute(SCHEDULED_ORDER_RUNS_DDL)
         await db.execute(SCHEDULED_ORDER_RUNS_INDEX)
+        job_cols = await _table_columns(db, "scheduled_orders")
+        if "external_service_id" not in job_cols:
+            await db.execute(_SCHEDULED_ORDERS_EXTERNAL_ID_MIGRATION)
         await db.commit()
+
+
+async def ensure_soldium_catalog_tables() -> None:
+    """Phase 2–4A Catalog core tables (soldium_catalog_*). Does not touch Catalog v2 / providers."""
+    from catalog_core.schema import ensure_soldium_catalog_at_path
+    from database_connector import DB_PATH
+
+    # Sync ensure is idempotent: creates tables, additive commercial columns, indexes, schema_version.
+    ensure_soldium_catalog_at_path(DB_PATH)

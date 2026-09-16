@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+
+{% block title %}{{ page_title }}{% endblock %}
+
+{% block head %}
+<style>
+  .cat-modal-backdrop {
+    position: fixed; inset: 0; z-index: 70;
+    background: rgba(0,0,0,0.55); backdrop-filter: blur(2px);
+  }
+  .cat-modal {
+    position: fixed; z-index: 80;
+    inset-inline: 1rem; top: 5%;
+    max-width: 40rem; margin-inline: auto;
+    border: 1px solid #243047; border-radius: 0.9rem;
+    background: #111827; padding: 1.25rem;
+    box-shadow: 0 24px 60px -20px rgba(0,0,0,0.7);
+    max-height: 90vh; overflow: auto;
+  }
+  .cat-section {
+    border: 1px solid #243047;
+    border-radius: 0.75rem;
+    padding: 0.9rem 1rem;
+    background: rgba(15, 23, 42, 0.55);
+  }
+  .cat-section + .cat-section { margin-top: 0.75rem; }
+  .cat-section h4 {
+    font-size: 0.75rem;
+    letter-spacing: 0.02em;
+    color: #94a3b8;
+    margin-bottom: 0.55rem;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<section class="space-y-4">
+  <div id="cat-alert" class="hidden rounded-lg border px-4 py-3 text-sm" role="alert"></div>
+  <div class="soldium-cut-card p-4 space-y-3">
+    <div class="flex flex-wrap gap-2 items-end">
+      <label class="text-xs text-slate-500 grid gap-1 flex-1 min-w-[180px]">
+        بحث
+        <input id="svc-search" type="search" placeholder="بحث بالاسم أو معرّف المزود…" class="rounded-lg border border-slate-600 bg-surface-800 px-3 py-2 text-sm w-full" />
+      </label>
+      <label class="text-xs text-slate-500 grid gap-1">
+        المنصة
+        <select id="svc-platform" class="rounded-lg border border-sky-700/50 bg-surface-800 px-3 py-2 text-sm min-w-[9rem]">
+          <option value="">كل المنصات</option>
+        </select>
+      </label>
+      <label class="text-xs text-slate-500 grid gap-1">
+        القسم
+        <select id="svc-section" class="rounded-lg border border-sky-700/50 bg-surface-800 px-3 py-2 text-sm min-w-[9rem]" disabled>
+          <option value="">كل الأقسام</option>
+        </select>
+      </label>
+      <label class="text-xs text-slate-500 grid gap-1">
+        القسم الفرعي
+        <select id="svc-subsection" class="rounded-lg border border-sky-700/50 bg-surface-800 px-3 py-2 text-sm min-w-[9rem]" disabled>
+          <option value="">كل الأقسام الفرعية</option>
+        </select>
+      </label>
+      <label class="text-xs text-slate-500 grid gap-1">
+        الحالة
+        <select id="svc-status" class="rounded-lg border border-slate-600 bg-surface-800 px-3 py-2 text-sm">
+          <option value="">كل الحالات</option>
+          <option value="draft">مسودة</option>
+          <option value="active">نشطة</option>
+          <option value="archived">مؤرشفة</option>
+        </select>
+      </label>
+      <label class="text-xs text-slate-500 grid gap-1">
+        النوع
+        <select id="svc-type" class="rounded-lg border border-slate-600 bg-surface-800 px-3 py-2 text-sm">
+          <option value="">كل الأنواع</option>
+        </select>
+      </label>
+      <label class="text-xs text-slate-500 grid gap-1">
+        طريقة الطلب
+        <select id="svc-ordering" class="rounded-lg border border-slate-600 bg-surface-800 px-3 py-2 text-sm">
+          <option value="">كل طرق الطلب</option>
+        </select>
+      </label>
+      <label class="text-xs text-slate-500 grid gap-1">
+        المصدر
+        <select id="svc-source" class="rounded-lg border border-slate-600 bg-surface-800 px-3 py-2 text-sm">
+          <option value="">كل المصادر</option>
+          <option value="none">بدون مصدر</option>
+          <option value="assigned">له مصدر</option>
+        </select>
+      </label>
+      <label class="text-xs text-slate-500 grid gap-1">
+        السعر
+        <select id="svc-price" class="rounded-lg border border-slate-600 bg-surface-800 px-3 py-2 text-sm">
+          <option value="">جميع الأسعار</option>
+          <option value="none">بدون سعر</option>
+          <option value="assigned">لها سعر</option>
+        </select>
+      </label>
+      <label class="text-xs text-slate-500 grid gap-1">
+        طريقة التسعير
+        <select id="svc-pricing-mode" class="rounded-lg border border-slate-600 bg-surface-800 px-3 py-2 text-sm">
+          <option value="">كل طرق التسعير</option>
+        </select>
+      </label>
+      <label class="text-xs text-slate-500 grid gap-1">
+        الجاهزية
+        <select id="svc-readiness" class="rounded-lg border border-slate-600 bg-surface-800 px-3 py-2 text-sm">
+          <option value="">كل الجاهزية</option>
+          <option value="ready">جاهزة</option>
+          <option value="needs_review">تحتاج مراجعة</option>
+        </select>
+      </label>
+      <button type="button" id="svc-clear-filters" class="rounded-lg border border-slate-600 px-3 py-2 text-sm">مسح الفلاتر</button>
+      <button type="button" id="svc-reload" class="rounded-lg border border-slate-600 px-3 py-2 text-sm">تحديث</button>
+      <button type="button" id="svc-create" class="rounded-lg bg-accent-600 hover:bg-accent-500 px-3 py-2 text-sm">إضافة خدمة</button>
+    </div>
+    <div class="overflow-auto">
+      <table class="min-w-full text-sm">
+        <thead class="text-xs text-slate-500">
+          <tr>
+            <th class="p-2 text-start">معرّف المزود</th>
+            <th class="p-2 text-start">الخدمة</th>
+            <th class="p-2 text-start">النوع</th>
+            <th class="p-2 text-start">المكان</th>
+            <th class="p-2 text-start">السعر</th>
+            <th class="p-2 text-start">مصدر التنفيذ</th>
+            <th class="p-2">الحالة</th>
+            <th class="p-2">الجاهزية</th>
+            <th class="p-2">إجراءات</th>
+          </tr>
+        </thead>
+        <tbody id="svc-tbody"></tbody>
+      </table>
+    </div>
+    <div class="flex justify-between text-xs text-slate-500">
+      <span id="svc-page-info"></span>
+      <div class="flex gap-2">
+        <button type="button" id="svc-prev">السابق</button>
+        <button type="button" id="svc-next">التالي</button>
+      </div>
+    </div>
+  </div>
+</section>
+<div id="modal-root" class="hidden" aria-hidden="true"></div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/catalog_core_ui.js"></script>
+<script>
+  CatalogCoreUI.mountServices();
+</script>
+{% endblock %}

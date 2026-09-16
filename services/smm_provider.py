@@ -31,6 +31,12 @@ class ProviderUnavailableError(Exception):
     pass
 
 
+class ProviderMalformedResponseError(Exception):
+    """Provider returned a body that is not usable catalog JSON."""
+
+    pass
+
+
 def _key_valid(api_key: str) -> bool:
     key = (api_key or "").strip()
     if not key:
@@ -50,8 +56,12 @@ async def _parse_response(
     if raw:
         try:
             data = json.loads(raw)
-        except json.JSONDecodeError:
-            data = None
+        except json.JSONDecodeError as exc:
+            raise ProviderMalformedResponseError(
+                "استجابة المزوّد ليست JSON صالحاً."
+            ) from exc
+    else:
+        data = None
 
     if status == 401:
         err = "مفتاح API غير صالح"
@@ -218,25 +228,73 @@ async def fetch_provider_services(
     return {"ok": True, "services": services_list, "count": len(services_list)}
 
 
+async def fetch_provider_account_services(
+    *,
+    provider_slug: str,
+    account_key: str,
+) -> Any:
+    """Read-only catalog payload for one provider account (action=services).
+
+    Returns the parsed JSON body (typically a list of service dicts).
+    Raises ProviderAuthError / ProviderUnavailableError /
+    ProviderMalformedResponseError / RuntimeError.
+    Does not write to the database.
+    """
+    slug = str(provider_slug or "").strip().lower()
+    account = str(account_key or "").strip().lower() or "default"
+    if not slug:
+        raise RuntimeError("provider_slug required")
+
+    provider = get_provider_record(slug)
+    if provider is None:
+        raise RuntimeError(f"Provider not found: {slug}")
+    if not provider.is_active:
+        raise RuntimeError(f"Provider inactive: {slug}")
+
+    account_rec = get_provider_account_record(slug, account)
+    if account_rec is None or not account_rec.is_active:
+        raise RuntimeError(f"No active API account for provider={slug} account={account}")
+
+    api_key = resolve_api_key(slug, account)
+    payload = {"key": api_key, "action": "services"}
+
+    try:
+        async with aiohttp.ClientSession(timeout=_REQUEST_TIMEOUT) as session:
+            async with session.post(provider.api_base_url, data=payload) as response:
+                return await _parse_response(response, action="services")
+    except asyncio.TimeoutError as exc:
+        raise ProviderUnavailableError("انتهت مهلة الاتصال بمزوّد الخدمة.") from exc
+    except aiohttp.ClientError as exc:
+        raise ProviderUnavailableError("تعذّر الاتصال بمزوّد الخدمة.") from exc
+
 async def submit_provider_order(
     *,
     provider_slug: str,
     account_key: str,
-    service_id: int,
+    service_id: int | str,
     link: str,
     quantity: int,
 ) -> str:
+    from utils.order_execution_identity import (
+        InvalidProviderExternalServiceId,
+        encode_provider_external_service_id_for_wire,
+    )
+
     slug = str(provider_slug or get_default_provider_slug()).strip().lower()
     account = str(account_key or "default").strip().lower() or "default"
     provider = get_provider_record(slug)
     if provider is None or not provider.is_active:
         raise ProviderUnavailableError(f"المزوّد {slug} غير نشط.")
+    try:
+        wire_service = encode_provider_external_service_id_for_wire(service_id)
+    except InvalidProviderExternalServiceId as exc:
+        raise ProviderUnavailableError(str(exc)) from exc
     api_key = resolve_api_key(slug, account)
 
     payload = {
         "key": api_key,
         "action": "add",
-        "service": service_id,
+        "service": wire_service,
         "link": link,
         "quantity": quantity,
     }

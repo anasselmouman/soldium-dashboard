@@ -1,0 +1,281 @@
+{% extends "base.html" %}
+
+{% block title %}{{ page_title }}{% endblock %}
+
+{% block head %}
+<style>
+  /* Catalog Structure — responsive rebuild (tree-primary mobile + sheet) */
+  .cat-structure-page {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+  }
+  .cat-structure-layout {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+  .cat-structure-tree-pane {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    border: 1px solid #243047;
+    background: linear-gradient(160deg, #111827, #0b0f17);
+    border-radius: 0.75rem;
+    padding: 0.75rem;
+    box-sizing: border-box;
+  }
+  .cat-structure-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+  }
+  .cat-structure-toolbar-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+  }
+  #tree-root {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    overflow-x: hidden;
+    overflow-y: visible;
+    font-size: 0.875rem;
+  }
+  .cat-tree-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.35rem;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+    text-align: start;
+    border-radius: 0.45rem;
+    padding: 0.4rem 0.5rem;
+    color: #cbd5e1;
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+  }
+  .cat-tree-item:hover { background: rgba(14,165,233,0.08); }
+  .cat-tree-item.active { background: rgba(14,165,233,0.16); color: #7dd3fc; }
+  .cat-tree-item-label {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    white-space: normal;
+    line-height: 1.35;
+  }
+  .cat-tree-children {
+    margin-inline-start: 0.65rem;
+    border-inline-start: 1px solid #243047;
+    padding-inline-start: 0.35rem;
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  /* Mobile sheet host — same #inspector node; not in document flow on small screens */
+  .cat-structure-sheet-backdrop {
+    display: none;
+  }
+  .cat-structure-details-pane {
+    display: none;
+  }
+
+  @media (max-width: 1279.98px) {
+    .cat-structure-sheet-backdrop {
+      display: block;
+      position: fixed;
+      inset: 0;
+      z-index: 60;
+      background: rgba(0, 0, 0, 0.55);
+      backdrop-filter: blur(2px);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s ease;
+    }
+    .cat-structure-sheet-backdrop.is-open {
+      opacity: 1;
+      pointer-events: auto;
+    }
+    .cat-structure-details-pane {
+      display: flex;
+      flex-direction: column;
+      position: fixed;
+      inset-inline: 0;
+      bottom: 0;
+      z-index: 65;
+      width: 100%;
+      max-width: 100%;
+      min-width: 0;
+      max-height: min(85vh, 40rem);
+      border: 1px solid #243047;
+      border-bottom: 0;
+      border-radius: 1rem 1rem 0 0;
+      background: #111827;
+      box-shadow: 0 -18px 50px -24px rgba(0, 0, 0, 0.75);
+      padding: 0.85rem 1rem 1.1rem;
+      box-sizing: border-box;
+      transform: translateY(110%);
+      transition: transform 0.22s ease;
+      pointer-events: none;
+    }
+    .cat-structure-details-pane.is-open {
+      transform: translateY(0);
+      pointer-events: auto;
+    }
+    .cat-structure-details-chrome {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      margin-bottom: 0.65rem;
+      flex-shrink: 0;
+    }
+    #inspector {
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow-y: auto;
+      overflow-x: hidden;
+      -webkit-overflow-scrolling: touch;
+      font-size: 0.875rem;
+      color: #94a3b8;
+    }
+    body.cat-structure-sheet-open {
+      overflow: hidden;
+    }
+  }
+
+  @media (min-width: 1280px) {
+    .cat-structure-layout {
+      display: grid;
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+      align-items: start;
+    }
+    .cat-structure-tree-pane {
+      grid-column: span 5 / span 5;
+      min-height: 28rem;
+    }
+    .cat-structure-sheet-backdrop {
+      display: none !important;
+    }
+    .cat-structure-details-pane {
+      display: flex;
+      flex-direction: column;
+      grid-column: span 7 / span 7;
+      position: sticky;
+      top: 5.5rem;
+      align-self: start;
+      max-height: calc(100vh - 6.5rem);
+      overflow: auto;
+      border: 1px solid #243047;
+      background: linear-gradient(160deg, #111827, #0b0f17);
+      border-radius: 0.75rem;
+      padding: 1rem;
+      min-height: 28rem;
+      min-width: 0;
+      width: auto;
+      max-width: none;
+      transform: none;
+      pointer-events: auto;
+      box-shadow: none;
+    }
+    .cat-structure-details-chrome {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 0.75rem;
+    }
+    .cat-structure-sheet-close {
+      display: none !important;
+    }
+    #inspector {
+      flex: 1 1 auto;
+      font-size: 0.875rem;
+      color: #94a3b8;
+      overflow: visible;
+    }
+  }
+
+  /* Shared action modals (unchanged pattern) */
+  .cat-modal-backdrop {
+    position: fixed; inset: 0; z-index: 70;
+    background: rgba(0,0,0,0.55); backdrop-filter: blur(2px);
+  }
+  .cat-modal {
+    position: fixed; z-index: 80;
+    inset-inline: 1rem; top: 10%;
+    max-width: 32rem; margin-inline: auto;
+    border: 1px solid #243047; border-radius: 0.9rem;
+    background: #111827; padding: 1.25rem;
+    box-shadow: 0 24px 60px -20px rgba(0,0,0,0.7);
+    max-height: 85vh;
+    overflow: auto;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<section class="cat-structure-page space-y-4" data-structure-ui="responsive-v2">
+  <div id="cat-alert" class="hidden rounded-lg border px-4 py-3 text-sm" role="alert"></div>
+
+  <div class="cat-structure-layout">
+    <div class="cat-structure-tree-pane">
+      <div class="cat-structure-toolbar">
+        <h2 class="text-sm font-semibold text-slate-200 m-0">الهيكل</h2>
+        <div class="cat-structure-toolbar-actions">
+          <button type="button" id="btn-add-root" class="text-xs rounded-md border border-slate-600 px-2 py-1 hover:bg-surface-800">+ قسم جذري</button>
+          <button type="button" id="btn-add-child" class="text-xs rounded-md border border-slate-600 px-2 py-1 hover:bg-surface-800">+ قسم فرعي</button>
+          <button type="button" id="btn-add-service" class="text-xs rounded-md border border-slate-600 px-2 py-1 hover:bg-surface-800">+ خدمة</button>
+        </div>
+      </div>
+      <div id="tree-root" class="space-y-0.5"></div>
+    </div>
+
+    <div
+      id="structure-sheet-backdrop"
+      class="cat-structure-sheet-backdrop"
+      data-structure-sheet-close="1"
+      aria-hidden="true"
+    ></div>
+
+    <aside
+      id="structure-details-pane"
+      class="cat-structure-details-pane"
+      role="region"
+      aria-label="تفاصيل العنصر"
+      aria-hidden="true"
+    >
+      <div class="cat-structure-details-chrome">
+        <h2 id="structure-details-title" class="text-sm font-semibold text-slate-200 m-0">التفاصيل</h2>
+        <button
+          type="button"
+          id="structure-sheet-close"
+          class="cat-structure-sheet-close text-slate-400 hover:text-white text-sm shrink-0"
+          data-structure-sheet-close="1"
+        >إغلاق</button>
+      </div>
+      <div id="inspector">اختر قسماً أو خدمة من الهيكل…</div>
+    </aside>
+  </div>
+</section>
+
+<div id="modal-root" class="hidden" aria-hidden="true"></div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/catalog_core_ui.js"></script>
+<script>
+  CatalogCoreUI.mountStructure();
+</script>
+{% endblock %}

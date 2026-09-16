@@ -25,6 +25,14 @@ from services.smm_provider import ProviderUnavailableError, submit_provider_orde
 from smm_services import get_service
 from utils.money import to_float
 from utils.order_economics import compute_provider_cost_dh
+from utils.active_link_guard import (
+    ACTIVE_LINK_OCCUPIED_MESSAGE,
+    ActiveLinkOccupiedError,
+    find_active_order_for_link_async,
+    is_active_link_order_status,
+    is_active_link_unique_violation,
+    normalize_order_link,
+)
 
 _log = logging.getLogger("soldium.scheduled_orders")
 
@@ -110,6 +118,11 @@ def _status_label(status: str) -> str:
 
 
 def _row_to_job(row: aiosqlite.Row) -> dict[str, Any]:
+    keys = set(row.keys())
+    external_id = None
+    if "external_service_id" in keys and row["external_service_id"] is not None:
+        text = str(row["external_service_id"]).strip()
+        external_id = text or None
     return {
         "id": int(row["id"]),
         "name": str(row["name"]) if row["name"] else None,
@@ -123,6 +136,8 @@ def _row_to_job(row: aiosqlite.Row) -> dict[str, Any]:
         "provider_slug": str(row["provider_slug"] or get_default_provider_slug()),
         "api_account": str(row["api_account"] or "default"),
         "fulfillment_mode": str(row["fulfillment_mode"] or "auto"),
+        "external_service_id": external_id,
+        "execution_generation": "gen1" if external_id else "gen0",
         "quantity_mode": str(row["quantity_mode"] or QUANTITY_FIXED),
         "quantity_fixed": (
             int(row["quantity_fixed"]) if row["quantity_fixed"] is not None else None
@@ -158,6 +173,13 @@ async def _get_template_order(order_id: int) -> dict[str, Any] | None:
 
 
 def _template_from_row(row: aiosqlite.Row) -> dict[str, Any]:
+    keys = set(row.keys())
+    snap = None
+    if "external_service_id_snapshot" in keys and row["external_service_id_snapshot"]:
+        snap = str(row["external_service_id_snapshot"]).strip() or None
+    catalog_id = None
+    if "catalog_id" in keys and row["catalog_id"]:
+        catalog_id = str(row["catalog_id"]).strip() or None
     return {
         "id": int(row["id"]),
         "user_id": int(row["user_id"]),
@@ -172,6 +194,8 @@ def _template_from_row(row: aiosqlite.Row) -> dict[str, Any]:
         "fulfillment_mode": str(row["fulfillment_mode"] or "auto"),
         "api_account": str(row["api_account"] or "default"),
         "provider_slug": str(row["provider_slug"] or get_default_provider_slug()),
+        "external_service_id_snapshot": snap,
+        "catalog_id": catalog_id,
     }
 
 
@@ -187,7 +211,9 @@ _TEMPLATE_ORDER_SELECT = """
         o.provider_order_id,
         COALESCE(o.fulfillment_mode, 'auto') AS fulfillment_mode,
         COALESCE(o.api_account, 'default') AS api_account,
-        COALESCE(o.provider_slug, 'gozibra') AS provider_slug
+        COALESCE(o.provider_slug, 'gozibra') AS provider_slug,
+        o.catalog_id,
+        o.external_service_id_snapshot
     FROM orders o
 """
 
@@ -389,6 +415,100 @@ async def _compute_order_pricing(service_id: str, quantity: int) -> tuple[float,
     return amount, cost
 
 
+async def _resolve_external_service_id_at_create(
+    template: dict[str, Any],
+) -> str:
+    """Freeze execution external ID once at schedule create (Gen-1).
+
+    Prefer template order snapshot; otherwise one-time live lookup.
+    Never invent or coerce to 0.
+    """
+    from utils.order_execution_identity import (
+        InvalidProviderExternalServiceId,
+        encode_provider_external_service_id_for_wire,
+    )
+
+    snap = str(template.get("external_service_id_snapshot") or "").strip()
+    if snap:
+        try:
+            return encode_provider_external_service_id_for_wire(snap)
+        except InvalidProviderExternalServiceId as exc:
+            raise ScheduledOrderValidationError(
+                f"معرّف التنفيذ المجمّد في الطلب المرجعي غير صالح: {exc}"
+            ) from exc
+
+    meta = await _lookup_service_provider_meta(str(template.get("service_id") or ""))
+    if meta is None:
+        raise ScheduledOrderValidationError(
+            "تعذّر تجميد معرّف تنفيذ المزوّد لهذه المهمة. "
+            "الطلب المرجعي بلا لقطة تنفيذ والخدمة غير قابلة للربط."
+        )
+    external = str(meta["external_service_id"]).strip()
+    try:
+        return encode_provider_external_service_id_for_wire(external)
+    except InvalidProviderExternalServiceId as exc:
+        raise ScheduledOrderValidationError(str(exc)) from exc
+
+
+def _assert_frozen_execution_identity(
+    *,
+    provider_slug: str,
+    api_account: str,
+    external_service_id: str,
+) -> str:
+    """Validate Gen-1 frozen triple; return wire-ready external id. Fail closed."""
+    from utils.order_execution_identity import (
+        InvalidProviderExternalServiceId,
+        encode_provider_external_service_id_for_wire,
+    )
+
+    slug = str(provider_slug or "").strip().lower()
+    account = str(api_account or "").strip().lower() or "default"
+    external = str(external_service_id or "").strip()
+    if not slug:
+        raise ScheduledOrderValidationError("معرّف المزوّد المجمّد مفقود.")
+    if not account:
+        raise ScheduledOrderValidationError("حساب المزوّد المجمّد مفقود.")
+    if not external:
+        raise ScheduledOrderValidationError("معرّف تنفيذ المزوّد المجمّد مفقود.")
+    try:
+        return encode_provider_external_service_id_for_wire(external)
+    except InvalidProviderExternalServiceId as exc:
+        raise ScheduledOrderValidationError(str(exc)) from exc
+
+
+def _assert_provider_account_usable(*, provider_slug: str, api_account: str) -> None:
+    """Fail closed if frozen provider/account cannot submit."""
+    from services.provider_registry import (
+        get_provider_account_record,
+        get_provider_record,
+        resolve_api_key,
+    )
+
+    slug = str(provider_slug or "").strip().lower()
+    account = str(api_account or "").strip().lower() or "default"
+    provider = get_provider_record(slug)
+    if provider is None or not getattr(provider, "is_active", True):
+        raise ScheduledOrderValidationError(
+            f"المزوّد المجمّد غير متاح: {slug}"
+        )
+    acct = get_provider_account_record(slug, account)
+    if acct is None:
+        raise ScheduledOrderValidationError(
+            f"حساب المزوّد المجمّد غير موجود: {slug}/{account}"
+        )
+    try:
+        key = resolve_api_key(slug, account)
+    except Exception as exc:  # noqa: BLE001 — surface as schedule failure
+        raise ScheduledOrderValidationError(
+            f"تعذّر استخدام حساب المزوّد المجمّد: {slug}/{account}"
+        ) from exc
+    if not str(key or "").strip():
+        raise ScheduledOrderValidationError(
+            f"مفتاح API لحساب المزوّد المجمّد غير مضبوط: {slug}/{account}"
+        )
+
+
 async def _create_order_with_balance_hold(
     *,
     user_id: int,
@@ -402,6 +522,8 @@ async def _create_order_with_balance_hold(
     initial_status: str,
     fulfillment_mode: str,
     provider_cost_dh: float,
+    catalog_id: str | None = None,
+    external_service_id_snapshot: str | None = None,
 ) -> int:
     amount_money = round(to_float(amount), 6)
     account = str(api_account or "default").strip() or "default"
@@ -410,59 +532,86 @@ async def _create_order_with_balance_hold(
     mode = str(fulfillment_mode or "auto").strip().lower() or "auto"
     if mode not in {"auto", "admin"}:
         mode = "auto"
+    legacy_catalog_id = str(catalog_id or "").strip() or None
+    external_snap = str(external_service_id_snapshot or "").strip() or None
+    stored_link = str(link or "")
+    normalized = normalize_order_link(stored_link)
+    normalized_for_db = normalized or None
 
-    async with db_transaction() as db:
-        async with db.execute(
-            "SELECT balance FROM users WHERE user_id = ?",
-            (user_id,),
-        ) as cursor:
-            user_row = await cursor.fetchone()
-        if user_row is None:
-            raise ScheduledOrderValidationError("حساب الأدمن غير موجود في قاعدة البيانات.")
+    try:
+        async with db_transaction() as db:
+            async with db.execute(
+                "SELECT balance FROM users WHERE user_id = ?",
+                (user_id,),
+            ) as cursor:
+                user_row = await cursor.fetchone()
+            if user_row is None:
+                raise ScheduledOrderValidationError("حساب الأدمن غير موجود في قاعدة البيانات.")
 
-        balance = float(user_row["balance"] or 0.0)
-        if balance < amount_money:
-            raise ScheduledOrderValidationError(
-                f"رصيد حساب الأدمن ({user_id}) غير كافٍ: {balance:.2f} DH مطلوب {amount_money:.2f} DH.",
+            balance = float(user_row["balance"] or 0.0)
+            if balance < amount_money:
+                raise ScheduledOrderValidationError(
+                    f"رصيد حساب الأدمن ({user_id}) غير كافٍ: {balance:.2f} DH مطلوب {amount_money:.2f} DH.",
+                )
+
+            if normalized_for_db and is_active_link_order_status(status):
+                occupied = await find_active_order_for_link_async(db, stored_link)
+                if occupied is not None:
+                    raise ActiveLinkOccupiedError(
+                        existing_order_id=int(occupied["id"]),
+                        normalized_link=normalized_for_db,
+                    )
+
+            balance_cursor = await db.execute(
+                """
+                UPDATE users
+                SET
+                    balance = ROUND(balance - ?, 6),
+                    total_spent = ROUND(total_spent + ?, 6)
+                WHERE user_id = ? AND balance >= ?
+                """,
+                (amount_money, amount_money, user_id, amount_money),
             )
+            if balance_cursor.rowcount == 0:
+                raise ScheduledOrderValidationError("تعذّر خصم الرصيد — رصيد غير كافٍ.")
 
-        balance_cursor = await db.execute(
-            """
-            UPDATE users
-            SET
-                balance = ROUND(balance - ?, 6),
-                total_spent = ROUND(total_spent + ?, 6)
-            WHERE user_id = ? AND balance >= ?
-            """,
-            (amount_money, amount_money, user_id, amount_money),
-        )
-        if balance_cursor.rowcount == 0:
-            raise ScheduledOrderValidationError("تعذّر خصم الرصيد — رصيد غير كافٍ.")
-
-        order_cursor = await db.execute(
-            """
-            INSERT INTO orders (
-                user_id, service_name, service_id, link, quantity, amount, total_price, status,
-                api_account, provider_slug, fulfillment_mode, provider_cost_dh
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                user_id,
-                service_name,
-                service_id,
-                link,
-                int(quantity),
-                amount_money,
-                amount_money,
-                status,
-                account,
-                slug,
-                mode,
-                round(to_float(provider_cost_dh), 6),
-            ),
-        )
-        return int(order_cursor.lastrowid)
+            try:
+                order_cursor = await db.execute(
+                    """
+                    INSERT INTO orders (
+                        user_id, service_name, service_id, link, quantity, amount, total_price, status,
+                        api_account, provider_slug, fulfillment_mode, provider_cost_dh,
+                        catalog_id, external_service_id_snapshot, normalized_link
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        user_id,
+                        service_name,
+                        service_id,
+                        stored_link,
+                        int(quantity),
+                        amount_money,
+                        amount_money,
+                        status,
+                        account,
+                        slug,
+                        mode,
+                        round(to_float(provider_cost_dh), 6),
+                        legacy_catalog_id,
+                        external_snap,
+                        normalized_for_db,
+                    ),
+                )
+            except sqlite3.IntegrityError as exc:
+                if normalized_for_db and is_active_link_unique_violation(exc):
+                    raise ActiveLinkOccupiedError(
+                        normalized_link=normalized_for_db,
+                    ) from exc
+                raise
+            return int(order_cursor.lastrowid)
+    except ActiveLinkOccupiedError as exc:
+        raise ScheduledOrderValidationError(ACTIVE_LINK_OCCUPIED_MESSAGE) from exc
 
 
 async def _persist_provider_order_id(order_id: int, provider_ref: str) -> None:
@@ -477,12 +626,59 @@ async def _persist_provider_order_id(order_id: int, provider_ref: str) -> None:
 
 
 async def _submit_job_order(job: dict[str, Any], quantity: int) -> int:
+    """Materialize a scheduled job into an order.
+
+    Phase 9B.8 / 9O:
+      Gen-1 (frozen external_service_id on job): use frozen execution identity;
+      never re-lookup smm_services for the Provider SKU.
+      Gen-0 (NULL external_service_id): fail closed — no live Legacy SKU rescue.
+
+    Retail price may still be computed live (independent of execution identity).
+    """
+    from utils.order_execution_identity import (
+        GEN0_EXECUTION_IDENTITY_MISSING,
+        is_gen1_scheduled_job,
+    )
+
     service_id = str(job["service_id"])
     link = str(job["link"])
     amount, provider_cost = await _compute_order_pricing(service_id, quantity)
 
-    requires_admin = str(job.get("fulfillment_mode") or "auto").strip().lower() == "admin"
+    fulfillment = str(job.get("fulfillment_mode") or "auto").strip().lower() or "auto"
+    if fulfillment not in {"auto", "admin"}:
+        fulfillment = "auto"
+    requires_admin = fulfillment == "admin"
     initial_status = "pending_admin" if requires_admin else "pending"
+
+    svc = await get_service(service_id)
+    legacy_catalog_id = None
+    if svc is not None:
+        legacy_catalog_id = str(svc.get("catalog_id") or "").strip() or None
+
+    if not is_gen1_scheduled_job(job):
+        # Phase 9O: Gen-0 must never resolve Provider SKU from live smm_services.
+        logger.warning(
+            "%s scheduled_job_id=%s service_id=%s gen=gen0",
+            GEN0_EXECUTION_IDENTITY_MISSING,
+            job.get("id"),
+            service_id,
+        )
+        raise ScheduledOrderValidationError(
+            "تعذّر تنفيذ المهمة المجدولة: معرّف تنفيذ المزوّد المجمّد مفقود "
+            f"({GEN0_EXECUTION_IDENTITY_MISSING})."
+        )
+
+    provider_slug = str(job.get("provider_slug") or "").strip().lower()
+    account = str(job.get("api_account") or "").strip().lower() or "default"
+    external_text = str(job.get("external_service_id") or "").strip()
+    wire_service = _assert_frozen_execution_identity(
+        provider_slug=provider_slug,
+        api_account=account,
+        external_service_id=external_text,
+    )
+    _assert_provider_account_usable(
+        provider_slug=provider_slug, api_account=account
+    )
 
     order_id = await _create_order_with_balance_hold(
         user_id=int(job["user_id"]),
@@ -491,31 +687,26 @@ async def _submit_job_order(job: dict[str, Any], quantity: int) -> int:
         link=link,
         quantity=quantity,
         amount=amount,
-        api_account=str(job.get("api_account") or "default"),
-        provider_slug=str(job.get("provider_slug") or get_default_provider_slug()),
+        api_account=account,
+        provider_slug=provider_slug,
         initial_status=initial_status,
-        fulfillment_mode=str(job.get("fulfillment_mode") or "auto"),
+        fulfillment_mode=fulfillment,
         provider_cost_dh=provider_cost,
+        catalog_id=legacy_catalog_id,
+        external_service_id_snapshot=external_text,
     )
-
-    meta = await _lookup_service_provider_meta(service_id)
-    if meta is None:
-        raise ScheduledOrderValidationError("تعذّر ربط الخدمة بالمزوّد.")
-
-    provider_slug = str(job.get("provider_slug") or meta["provider_slug"]).strip().lower()
-    account = str(job.get("api_account") or meta["account_key"]).strip().lower() or "default"
 
     provider_ref = await submit_provider_order(
         provider_slug=provider_slug,
         account_key=account,
-        service_id=int(meta["external_service_id"]),
+        service_id=wire_service,
         link=link,
         quantity=quantity,
     )
     await _persist_provider_order_id(order_id, provider_ref)
 
     logger.info(
-        "SCHEDULED_ORDER executed job_id=%s order_id=%s qty=%s provider_ref=%s",
+        "SCHEDULED_ORDER executed job_id=%s order_id=%s qty=%s provider_ref=%s gen=gen1",
         job["id"],
         order_id,
         quantity,
@@ -733,16 +924,26 @@ async def create_scheduled_order(
 
     label = (name or "").strip() or None
 
+    frozen_external = await _resolve_external_service_id_at_create(template)
+    fulfillment = str(template["fulfillment_mode"] or "auto").strip().lower() or "auto"
+    if fulfillment not in {"auto", "admin"}:
+        raise ScheduledOrderValidationError("وضع التنفيذ يجب أن يكون auto أو admin.")
+    provider_slug = str(template["provider_slug"] or get_default_provider_slug()).strip().lower()
+    api_account = str(template["api_account"] or "default").strip().lower() or "default"
+    _assert_provider_account_usable(
+        provider_slug=provider_slug, api_account=api_account
+    )
+
     async with db_transaction() as db:
         cursor = await db.execute(
             """
             INSERT INTO scheduled_orders (
                 name, template_order_id, user_id, service_id, service_name, link,
-                provider_slug, api_account, fulfillment_mode,
+                provider_slug, api_account, fulfillment_mode, external_service_id,
                 quantity_mode, quantity_fixed, quantity_min, quantity_max,
                 interval_days, next_run_at, status
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 label,
@@ -751,9 +952,10 @@ async def create_scheduled_order(
                 str(template["service_id"]),
                 str(template["service_name"]),
                 str(template["link"]),
-                str(template["provider_slug"]),
-                str(template["api_account"]),
-                str(template["fulfillment_mode"]),
+                provider_slug,
+                api_account,
+                fulfillment,
+                frozen_external,
                 str(quantity_mode).strip().lower(),
                 quantity_fixed,
                 quantity_min,
@@ -768,11 +970,12 @@ async def create_scheduled_order(
     job = await get_scheduled_order(job_id)
     assert job is not None
     logger.info(
-        "SCHEDULED_ORDER created id=%s template=%s interval_days=%s qty_mode=%s",
+        "SCHEDULED_ORDER created id=%s template=%s interval_days=%s qty_mode=%s gen=gen1 external=%s",
         job_id,
         resolved_order_id,
         days,
         quantity_mode,
+        frozen_external,
     )
     return job
 

@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+
+{% block title %}{{ page_title }}{% endblock %}
+
+{% block content %}
+<section class="space-y-4">
+  <div class="soldium-cut-card p-6 sm:p-8 text-center sm:text-start">
+    <p class="text-xs font-semibold tracking-widest text-violet-300/90 mb-3">إدارة الكاتالوج</p>
+    <h2 class="text-lg sm:text-xl font-bold text-white mb-2">{{ page_heading }}</h2>
+    {% if page_subheading %}
+    <p class="text-sm text-slate-400 mb-4">{{ page_subheading }}</p>
+    {% endif %}
+    <div
+      class="mt-4 rounded-xl border border-dashed border-slate-600/80 bg-surface-950/50 px-4 py-8 text-sm text-slate-400"
+      role="status"
+    >
+      {{ placeholder_message }}
+    </div>
+    <div class="mt-5">
+      <a href="/catalog" class="text-sm text-sky-300 hover:text-sky-200 transition">← العودة إلى رئيسية الكاتالوج</a>
+    </div>
+  </div>
+</section>
+{% endblock %}

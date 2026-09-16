@@ -51,7 +51,10 @@ _PENDING_MANUAL_ORDERS_SQL = """
         o.status,
         COALESCE(o.fulfillment_mode, 'auto') AS fulfillment_mode,
         o.api_account,
+        o.provider_slug,
         o.provider_order_id,
+        o.catalog_id,
+        o.external_service_id_snapshot,
         o.created_at,
         (
             SELECT COUNT(*)
@@ -80,7 +83,10 @@ _MANUAL_ORDER_BY_ID_SQL = """
         o.status,
         COALESCE(o.fulfillment_mode, 'auto') AS fulfillment_mode,
         o.api_account,
+        o.provider_slug,
         o.provider_order_id,
+        o.catalog_id,
+        o.external_service_id_snapshot,
         COALESCE(o.refunded_amount, 0) AS refunded_amount,
         o.status_note,
         o.created_at,
@@ -169,8 +175,24 @@ def _row_to_manual_order(row: aiosqlite.Row, *, include_note: bool = False) -> d
         "status_key": normalize_order_status_key(row["status"]),
         "fulfillment_mode": str(row["fulfillment_mode"] or "admin"),
         "api_account": str(row["api_account"] or "admin"),
+        "provider_slug": (
+            str(row["provider_slug"])
+            if "provider_slug" in row.keys() and row["provider_slug"]
+            else get_default_provider_slug()
+        ),
         "provider_order_id": (
             str(row["provider_order_id"]) if row["provider_order_id"] else None
+        ),
+        "catalog_id": (
+            str(row["catalog_id"])
+            if "catalog_id" in row.keys() and row["catalog_id"]
+            else None
+        ),
+        "external_service_id_snapshot": (
+            str(row["external_service_id_snapshot"])
+            if "external_service_id_snapshot" in row.keys()
+            and row["external_service_id_snapshot"]
+            else None
         ),
         "created_at": str(row["created_at"]),
         "waiting_seconds": waiting,
@@ -245,8 +267,21 @@ async def _lookup_service_provider_meta(catalog_item_id: str) -> dict[str, str] 
 async def ensure_provider_order_ref(order: dict[str, Any]) -> str | None:
     """
     Return distributor order id for a manual order.
-    If missing locally, submit once to the distributor API and persist the ref.
+
+    Gen-1 (external_service_id_snapshot set): submit using frozen order identity.
+    Gen-0 (snapshot NULL/empty): fail closed — no live smm_services SKU rescue
+    (Phase 9O: GEN0_EXECUTION_IDENTITY_MISSING).
+    Seed/demo service_ids are never submitted.
     """
+    from utils.order_execution_identity import (
+        GEN0_EXECUTION_IDENTITY_MISSING,
+        InvalidProviderExternalServiceId,
+        encode_provider_external_service_id_for_wire,
+        is_gen1_execution_order,
+        is_seed_demo_service_id,
+        order_external_snapshot,
+    )
+
     existing = str(order.get("provider_order_id") or "").strip()
     if existing:
         return existing
@@ -261,48 +296,71 @@ async def ensure_provider_order_ref(order: dict[str, Any]) -> str | None:
         )
         return None
 
-    meta = await _lookup_service_provider_meta(catalog_item_id)
-    if meta is None:
+    if is_seed_demo_service_id(catalog_item_id):
         logger.warning(
-            "ensure_provider_order_ref catalog lookup failed order_id=%s item=%s",
+            "ensure_provider_order_ref blocked seed/demo order_id=%s item=%s",
             order_id,
             catalog_item_id,
         )
         return None
 
-    provider_slug = str(order.get("provider_slug") or meta["provider_slug"]).strip().lower()
-    account = _resolve_api_account(order.get("api_account") or meta["account_key"])
-
-    try:
-        provider_ref = await submit_provider_order(
-            provider_slug=provider_slug,
-            account_key=account,
-            service_id=int(meta["external_service_id"]),
-            link=link,
-            quantity=int(order.get("quantity") or 1),
-        )
-    except ProviderUnavailableError as exc:
-        logger.warning(
-            "ensure_provider_order_ref submit failed order_id=%s: %s",
+    if is_gen1_execution_order(order):
+        snap = order_external_snapshot(order)
+        provider_slug = str(order.get("provider_slug") or "").strip().lower()
+        if not provider_slug:
+            logger.warning(
+                "ensure_provider_order_ref Gen-1 missing provider_slug order_id=%s",
+                order_id,
+            )
+            return None
+        account = _resolve_api_account(order.get("api_account"))
+        try:
+            wire_service = encode_provider_external_service_id_for_wire(snap)
+        except InvalidProviderExternalServiceId:
+            logger.warning(
+                "ensure_provider_order_ref Gen-1 invalid snapshot order_id=%s snap=%r",
+                order_id,
+                snap,
+            )
+            return None
+        try:
+            provider_ref = await submit_provider_order(
+                provider_slug=provider_slug,
+                account_key=account,
+                service_id=wire_service,
+                link=link,
+                quantity=int(order.get("quantity") or 1),
+            )
+        except ProviderUnavailableError as exc:
+            logger.warning(
+                "ensure_provider_order_ref Gen-1 submit failed order_id=%s: %s",
+                order_id,
+                exc,
+            )
+            return None
+        except Exception:
+            logger.exception(
+                "ensure_provider_order_ref Gen-1 unexpected error order_id=%s",
+                order_id,
+            )
+            return None
+        await _persist_provider_order_id(order_id, provider_ref)
+        order["provider_order_id"] = provider_ref
+        logger.info(
+            "ASSIGN_PROVIDER_ORDER_REF gen1 order_id=%s provider_ref=%s",
             order_id,
-            exc,
+            provider_ref,
         )
-        return None
-    except Exception as exc:
-        logger.exception(
-            "ensure_provider_order_ref unexpected error order_id=%s",
-            order_id,
-        )
-        return None
+        return provider_ref
 
-    await _persist_provider_order_id(order_id, provider_ref)
-    order["provider_order_id"] = provider_ref
-    logger.info(
-        "ASSIGN_PROVIDER_ORDER_REF order_id=%s provider_ref=%s",
+    # Gen-0: fail closed — never live-resolve Provider SKU from smm_services.
+    logger.warning(
+        "%s ensure_provider_order_ref order_id=%s service_id=%s gen=gen0",
+        GEN0_EXECUTION_IDENTITY_MISSING,
         order_id,
-        provider_ref,
+        catalog_item_id,
     )
-    return provider_ref
+    return None
 
 
 def _is_pending_manual(order: dict[str, Any]) -> bool:
@@ -509,7 +567,10 @@ async def list_manual_order_history(
                 o.status,
                 COALESCE(o.fulfillment_mode, 'auto') AS fulfillment_mode,
                 o.api_account,
+                o.provider_slug,
                 o.provider_order_id,
+                o.catalog_id,
+                o.external_service_id_snapshot,
                 COALESCE(o.refunded_amount, 0) AS refunded_amount,
                 o.status_note,
                 o.created_at,

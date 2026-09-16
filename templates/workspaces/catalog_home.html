@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+
+{% block title %}{{ page_title }}{% endblock %}
+
+{% block content %}
+<section class="space-y-6">
+  <div class="soldium-cut-card p-6 sm:p-8">
+    <p class="text-xs font-semibold tracking-widest text-violet-300/90 mb-3">مساحة إدارة الكاتالوج</p>
+    <h2 class="text-xl sm:text-2xl font-bold text-white mb-2">مرحباً بك في إدارة الكاتالوج</h2>
+    <p class="text-sm text-slate-400 leading-relaxed max-w-2xl">
+      هذه مساحة عمل مستقلّة داخل منصة سولديوم لإدارة هيكل الخدمات والعروض.
+      أقسام الكاتالوج ستُبنى على مراحل — استخدم القائمة الجانبية للتنقّل بين الأقسام.
+    </p>
+    <div class="mt-6 flex flex-wrap gap-2">
+      <a
+        href="/catalog/services"
+        class="rounded-lg bg-accent-600 hover:bg-accent-500 px-4 py-2 text-sm font-medium text-white transition"
+      >الخدمات</a>
+      <a
+        href="/catalog/structure"
+        class="rounded-lg border border-slate-600 hover:border-slate-500 px-4 py-2 text-sm text-slate-200 transition"
+      >التنظيم</a>
+      <a
+        href="/"
+        class="rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-400 hover:text-slate-200 transition"
+      >العودة إلى لوحة الإدارة</a>
+    </div>
+  </div>
+
+  <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+    {% for item in workspace_nav %}
+    {% if item.key != 'home' %}
+    <a
+      href="{{ item.href }}"
+      class="rounded-xl border border-slate-700/80 bg-surface-900/80 px-4 py-3 hover:border-sky-500/40 hover:bg-surface-800/60 transition"
+    >
+      <div class="text-sm font-medium text-slate-100">{{ item.label }}</div>
+      <div class="text-[11px] text-slate-500 mt-1">مرحلة لاحقة</div>
+    </a>
+    {% endif %}
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}
