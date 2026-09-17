@@ -474,43 +474,22 @@ async def _scan_old_manual_orders() -> list[AlertCandidate]:
 
 
 async def _scan_old_deposits() -> list[AlertCandidate]:
-    hours = ALERT_OLD_DEPOSIT_HOURS
-    async with get_db() as db:
-        async with db.execute(
-            """
-            SELECT id, user_id, amount, created_at
-            FROM deposits
-            WHERE status = 'pending'
-              AND datetime(created_at) <= datetime('now', ?)
-            ORDER BY created_at ASC
-            LIMIT 50
-            """,
-            (f"-{hours} hours",),
-        ) as cursor:
-            rows = await cursor.fetchall()
+    """Identify pending deposits older than the configured threshold.
 
-    return [
-        AlertCandidate(
-            alert_type="old_deposit",
-            severity="warning",
-            entity_type="deposit",
-            entity_id=str(int(row["id"])),
-            title=f"إيداع معلق — #{int(row['id'])}",
-            message=(
-                f"إيداع بقيمة {float(row['amount']):.2f} درهم للمستخدم "
-                f"{int(row['user_id'])} معلق منذ أكثر من {hours} ساعة."
-            ),
-            fingerprint=f"old_deposit:{int(row['id'])}",
-            payload={
-                "deposit_id": int(row["id"]),
-                "user_id": int(row["user_id"]),
-                "amount_dh": float(row["amount"]),
-                "created_at": str(row["created_at"]),
-                "hours_threshold": hours,
-            },
-        )
-        for row in rows
-    ]
+    Production ``deposits`` has no ``created_at`` (columns: id, user_id, amount, method,
+    proof_file_id, status). ``deposit_transactions.created_at`` exists but rows are inserted
+    only on approval, so that timestamp cannot represent the age of a still-pending deposit.
+    Without a reliable pending-deposit age signal, this scanner returns no candidates rather
+    than inventing timestamps or querying a nonexistent column.
+    """
+    hours = ALERT_OLD_DEPOSIT_HOURS
+    logger.warning(
+        "Skipping old-deposit age scan: deposits has no created_at; "
+        "deposit_transactions.created_at is only written on approval and cannot age "
+        "pending deposits (threshold=%s hours)",
+        hours,
+    )
+    return []
 
 
 async def _scan_old_withdrawals() -> list[AlertCandidate]:

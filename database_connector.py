@@ -4,8 +4,10 @@ Shared SQLite access for the admin dashboard.
 Connects to the Telegram bot database (users.db) with settings that reduce
 locking conflicts when the bot is running concurrently.
 
-Catalog table ``smm_services`` is created via ``db_schema.ensure_smm_services_table``
-(on app startup). Seed it once with ``python scripts/migrate_smm_services.py``.
+Bot-owned schema (users, orders, deposits, smm_services, providers, …) is applied
+by soldium-bot ``database.init_db()``. Dashboard startup uses
+``db_schema.ensure_shared_bot_schema`` (verify + explicit bridge only when incomplete).
+Seed catalog rows once with ``python scripts/migrate_smm_services.py`` if needed.
 """
 from __future__ import annotations
 

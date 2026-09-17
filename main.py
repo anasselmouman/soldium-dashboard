@@ -18,10 +18,12 @@ from fastapi.staticfiles import StaticFiles
 from admin_log import setup_admin_logging
 from database_connector import DB_PATH, count_users
 from db_schema import (
+    RequiredBotSchemaError,
+    SharedBotMigrationError,
     ensure_admin_alerts_table,
     ensure_admin_notifications_table,
     ensure_scheduled_orders_tables,
-    ensure_smm_services_table,
+    ensure_shared_bot_schema,
     ensure_soldium_catalog_tables,
     ensure_timed_announcements_tables,
 )
@@ -110,9 +112,14 @@ async def _admin_alerts_bootstrap() -> None:
 
 
 async def _run_schema_migrations() -> None:
-    """Run each schema migration independently so one failure does not skip the rest."""
+    """Run schema migrations with explicit ownership boundaries (Phase 11).
+
+    - ``shared_bot_schema``: bot-owned tables via explicit bridge / verify (hard fail).
+    - Remaining steps: dashboard-owned (or shared UI) ensures; soft-warn on failure.
+    Catalog schema stays independent under ``soldium_catalog``.
+    """
     migrations: tuple[tuple[str, object], ...] = (
-        ("smm_services", ensure_smm_services_table),
+        ("shared_bot_schema", ensure_shared_bot_schema),
         ("timed_announcements", ensure_timed_announcements_tables),
         ("scheduled_deletions", ensure_scheduled_deletions_table),
         ("admin_alerts", ensure_admin_alerts_table),
@@ -123,6 +130,13 @@ async def _run_schema_migrations() -> None:
     for name, migrate in migrations:
         try:
             await migrate()
+        except (SharedBotMigrationError, RequiredBotSchemaError):
+            _startup_log.error(
+                "CRITICAL: required bot schema step failed during %s; "
+                "aborting dashboard startup",
+                name,
+            )
+            raise
         except Exception as exc:
             _startup_log.warning("Schema migration %s failed: %s", name, exc)
 

@@ -9,6 +9,7 @@ import pytest
 
 import database_connector as db_conn
 from admin_alerts import (
+    _scan_old_deposits,
     dismiss_alert,
     list_open_alerts,
     scan_all_alerts,
@@ -48,7 +49,17 @@ def _create_test_db(path: Path) -> None:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id INTEGER NOT NULL,
                 amount REAL NOT NULL,
-                status TEXT NOT NULL DEFAULT 'pending',
+                method TEXT NOT NULL DEFAULT 'bank',
+                proof_file_id TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL DEFAULT 'pending'
+            );
+            CREATE TABLE deposit_transactions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                deposit_method TEXT NOT NULL,
+                amount REAL NOT NULL,
+                status TEXT NOT NULL DEFAULT 'completed',
+                deposit_id INTEGER,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
             CREATE TABLE withdrawals (
@@ -90,6 +101,12 @@ def _create_test_db(path: Path) -> None:
                     datetime('now', '-30 hours'), datetime('now', '-30 hours'))
             """
         )
+        conn.execute(
+            """
+            INSERT INTO deposits (user_id, amount, method, proof_file_id, status)
+            VALUES (1, 100.0, 'bank', 'proof-pending-1', 'pending')
+            """
+        )
         conn.commit()
     finally:
         conn.close()
@@ -101,6 +118,24 @@ def alerts_db(tmp_path, monkeypatch):
     _create_test_db(db_path)
     monkeypatch.setattr(db_conn, "DB_PATH", db_path)
     return db_path
+
+
+def test_deposits_schema_has_no_created_at(alerts_db):
+    conn = sqlite3.connect(alerts_db)
+    try:
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(deposits)")}
+    finally:
+        conn.close()
+    assert "created_at" not in cols
+    assert cols >= {"id", "user_id", "amount", "method", "proof_file_id", "status"}
+
+
+def test_scan_old_deposits_does_not_query_missing_created_at(alerts_db):
+    async def _run():
+        candidates = await _scan_old_deposits()
+        assert candidates == []
+
+    asyncio.run(_run())
 
 
 def test_scan_detects_stuck_execution_order(alerts_db, monkeypatch):
@@ -118,6 +153,7 @@ def test_scan_detects_stuck_execution_order(alerts_db, monkeypatch):
         alerts = await list_open_alerts()
         types = {a["alert_type"] for a in alerts}
         assert "stuck_execution" in types
+        assert "old_deposit" not in types
 
     asyncio.run(_run())
 

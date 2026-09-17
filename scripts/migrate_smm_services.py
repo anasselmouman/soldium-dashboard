@@ -20,7 +20,7 @@ _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from db_schema import ensure_smm_services_table  # noqa: E402
+from db_schema import ensure_shared_bot_schema  # noqa: E402
 from database_connector import db_transaction, get_db  # noqa: E402
 from settings import SERVICE_USD_TO_DH_MULTIPLIER  # noqa: E402
 from smm_services import count_services  # noqa: E402
@@ -44,7 +44,7 @@ def _resolve_provider_rate(row: dict) -> float:
 
 
 async def migrate(*, force: bool) -> None:
-    await ensure_smm_services_table()
+    await ensure_shared_bot_schema()
     existing = await count_services()
     if existing > 0 and not force:
         print(

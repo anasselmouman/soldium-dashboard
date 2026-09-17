@@ -1,8 +1,78 @@
 """Shared SQLite schema helpers for the admin dashboard."""
 from __future__ import annotations
 
+import logging
+import sys
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Iterator
+
 from database_connector import get_db
 
+logger = logging.getLogger(__name__)
+
+# Top-level short names that exist in both soldium-bot and soldium-dashboard.
+# Loading bot.database while dashboard modules occupy these names shadows bot config/utils.
+_BOT_COLLIDING_TOP_LEVEL = frozenset({"config", "utils", "services", "database", "storefront"})
+
+
+class SharedBotMigrationError(RuntimeError):
+    """Required shared bot ``init_db()`` migration failed — startup must not continue."""
+
+
+class RequiredBotSchemaError(RuntimeError):
+    """Shared bot-owned schema is missing or incomplete; dashboard cannot start safely."""
+
+
+def _is_bot_colliding_module(name: str) -> bool:
+    return name.split(".", 1)[0] in _BOT_COLLIDING_TOP_LEVEL
+
+
+@contextmanager
+def _bot_import_isolation(bot_root: Path) -> Iterator[None]:
+    """Prefer bot-root imports for colliding short names, then restore dashboard modules.
+
+    Stashes and restores only known colliding packages so dashboard ``config`` / ``utils``
+    remain available after the shared migration. Bot ``database`` binds its config constants
+    at import time inside this window; callers should invoke ``init_db()`` while isolated.
+    """
+    root_str = str(bot_root.resolve())
+    saved: dict[str, object] = {}
+    for name in list(sys.modules):
+        if _is_bot_colliding_module(name):
+            saved[name] = sys.modules.pop(name)
+
+    path_inserted = False
+    if root_str not in sys.path:
+        sys.path.insert(0, root_str)
+        path_inserted = True
+    try:
+        yield
+    finally:
+        for name in list(sys.modules):
+            if _is_bot_colliding_module(name):
+                sys.modules.pop(name, None)
+        sys.modules.update(saved)
+        if path_inserted:
+            try:
+                sys.path.remove(root_str)
+            except ValueError:
+                pass
+
+
+def load_bot_database_module():
+    """Import soldium-bot ``database`` without dashboard ``config`` shadowing bot config."""
+    bot_root = Path(__file__).resolve().parent.parent / "soldium-bot"
+    if not bot_root.is_dir():
+        raise SharedBotMigrationError(f"soldium-bot root not found: {bot_root}")
+    with _bot_import_isolation(bot_root):
+        import database as bot_db  # intentional: load bot package under isolation
+
+        return bot_db
+
+
+# Legacy DDL strings retained for test fixtures / docs. Bot ``init_db()`` owns these
+# tables at runtime; dashboard startup no longer executes PROVIDERS_*/SMM_* DDL.
 PROVIDERS_DDL = """
 CREATE TABLE IF NOT EXISTS providers (
     slug TEXT PRIMARY KEY,
@@ -215,42 +285,6 @@ CREATE INDEX IF NOT EXISTS idx_scheduled_order_runs_job
 ON scheduled_order_runs (scheduled_order_id, ran_at DESC);
 """
 
-_ORDERS_STATUS_CHANGED_MIGRATION = (
-    "ALTER TABLE orders ADD COLUMN status_changed_at TEXT"
-)
-
-_ORDERS_PROVIDER_COST_MIGRATION = (
-    "ALTER TABLE orders ADD COLUMN provider_cost_dh REAL NOT NULL DEFAULT 0"
-)
-
-_SMM_COLUMN_MIGRATIONS: tuple[tuple[str, str], ...] = (
-    (
-        "fulfillment_mode",
-        "ALTER TABLE smm_services ADD COLUMN fulfillment_mode TEXT NOT NULL DEFAULT 'auto'",
-    ),
-    ("provider_api_account", "ALTER TABLE smm_services ADD COLUMN provider_api_account TEXT"),
-    (
-        "provider_price_updated_at",
-        "ALTER TABLE smm_services ADD COLUMN provider_price_updated_at TEXT",
-    ),
-    (
-        "provider_slug",
-        "ALTER TABLE smm_services ADD COLUMN provider_slug TEXT NOT NULL DEFAULT 'gozibra'",
-    ),
-)
-
-_ORDERS_PROVIDER_SLUG_MIGRATION = (
-    "ALTER TABLE orders ADD COLUMN provider_slug TEXT NOT NULL DEFAULT 'gozibra'"
-)
-
-_ORDERS_CATALOG_ID_MIGRATION = "ALTER TABLE orders ADD COLUMN catalog_id TEXT"
-
-_ORDERS_EXTERNAL_SNAPSHOT_MIGRATION = (
-    "ALTER TABLE orders ADD COLUMN external_service_id_snapshot TEXT"
-)
-
-_ORDERS_NORMALIZED_LINK_MIGRATION = "ALTER TABLE orders ADD COLUMN normalized_link TEXT"
-
 
 async def _table_columns(db, table: str) -> set[str]:
     async with db.execute(f"PRAGMA table_info([{table}])") as cursor:
@@ -258,162 +292,167 @@ async def _table_columns(db, table: str) -> set[str]:
     return {str(row[1]) for row in rows}
 
 
-async def ensure_smm_services_table() -> None:
-    async with get_db() as db:
-        await db.execute(PROVIDERS_DDL)
-        await db.execute(PROVIDER_ACCOUNTS_DDL)
-        await db.execute(PROVIDER_ACCOUNTS_INDEX)
-        pa_cols = await _table_columns(db, "provider_accounts")
-        if "display_name" not in pa_cols:
-            await db.execute(
-                "ALTER TABLE provider_accounts ADD COLUMN display_name TEXT NOT NULL DEFAULT ''"
-            )
-        await db.execute(SMM_SERVICES_DDL)
-        await db.execute(SMM_SERVICES_INDEX)
-        cols = await _table_columns(db, "smm_services")
-        for col_name, ddl in _SMM_COLUMN_MIGRATIONS:
-            if col_name not in cols:
-                await db.execute(ddl)
-        await db.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_smm_services_provider
-            ON smm_services (provider_slug, is_active)
-            """
-        )
-        order_cols = await _table_columns(db, "orders")
-        if "provider_cost_dh" not in order_cols:
-            try:
-                await db.execute(_ORDERS_PROVIDER_COST_MIGRATION)
-            except Exception:
-                pass
-        if "provider_slug" not in order_cols:
-            try:
-                await db.execute(_ORDERS_PROVIDER_SLUG_MIGRATION)
-            except Exception:
-                pass
-        if "catalog_id" not in order_cols:
-            try:
-                await db.execute(_ORDERS_CATALOG_ID_MIGRATION)
-            except Exception:
-                pass
-        if "external_service_id_snapshot" not in order_cols:
-            try:
-                await db.execute(_ORDERS_EXTERNAL_SNAPSHOT_MIGRATION)
-            except Exception:
-                pass
-        if "normalized_link" not in order_cols:
-            try:
-                await db.execute(_ORDERS_NORMALIZED_LINK_MIGRATION)
-            except Exception:
-                pass
-        if "status_changed_at" not in order_cols:
-            try:
-                await db.execute(_ORDERS_STATUS_CHANGED_MIGRATION)
-                await db.execute(
-                    "UPDATE orders SET status_changed_at = created_at "
-                    "WHERE status_changed_at IS NULL"
-                )
-            except Exception:
-                pass
-        await _seed_default_gozibra(db)
-        await _backfill_account_display_names(db)
-        await db.commit()
-
-    _run_shared_bot_migrations()
-
-
-def _run_shared_bot_migrations() -> None:
-    """يطبّق ترحيلات البوت (بما فيها catalog_id) على users.db المشتركة."""
-    import sys
-    from pathlib import Path
-
+def list_pending_bot_migrations() -> list[str]:
+    """Read-only list of pending bot-owned ``init_db`` migrations for the shared DB."""
     from database_connector import DB_PATH
 
     bot_root = Path(__file__).resolve().parent.parent / "soldium-bot"
-    root_str = str(bot_root)
-    if root_str not in sys.path:
-        sys.path.insert(0, root_str)
-    import database as bot_db
+    if not bot_root.is_dir():
+        raise RequiredBotSchemaError(f"soldium-bot root not found: {bot_root}")
+    with _bot_import_isolation(bot_root):
+        import database as bot_db  # intentional: load bot package under isolation
 
-    bot_db.DB_PATH = Path(DB_PATH)
-    bot_db.init_db()
+        return list(bot_db.pending_init_db_migrations(db_path=Path(DB_PATH)))
 
 
-async def _seed_default_gozibra(db) -> None:
-    import os
+def verify_required_bot_schema() -> None:
+    """Fail closed when required bot-owned schema is missing (read-only; no mutations)."""
+    from database_connector import DB_PATH
 
-    api_url = os.environ.get("API_URL", "https://gozibra.com/api/v2").strip()
-    if not api_url:
+    pending = list_pending_bot_migrations()
+    if not pending:
         return
-    has_key = any(
-        os.environ.get(name, "").strip()
-        for name in (
-            "SMM_KEY_DEFAULT",
-            "SMM_KEY_INSTAGRAM",
-            "SMM_KEY_FACEBOOK",
-            "SMM_KEY_TIKTOK",
-        )
+    preview = ", ".join(pending[:12])
+    more = f" (+{len(pending) - 12} more)" if len(pending) > 12 else ""
+    raise RequiredBotSchemaError(
+        "Required bot-owned schema is incomplete for shared database "
+        f"{DB_PATH}. Pending migrations: {preview}{more}. "
+        "Start soldium-bot once (or ensure bot database.init_db() has run) "
+        "before starting the dashboard. Dashboard no longer ALTERs bot tables itself."
     )
-    if not has_key:
+
+
+def _load_bot_migration_lock_module():
+    """Load soldium-bot ``migration_lock`` by path (no short-name config collision)."""
+    import importlib.util
+
+    bot_root = Path(__file__).resolve().parent.parent / "soldium-bot"
+    module_path = bot_root / "migration_lock.py"
+    if not module_path.is_file():
+        raise SharedBotMigrationError(f"migration_lock module not found: {module_path}")
+    # Unique module name so dashboard ``sys.modules`` stays clean across reloads.
+    mod_name = "soldium_bot_migration_lock"
+    existing = sys.modules.get(mod_name)
+    if existing is not None:
+        return existing
+    spec = importlib.util.spec_from_file_location(mod_name, module_path)
+    if spec is None or spec.loader is None:
+        raise SharedBotMigrationError(f"Unable to load migration lock from {module_path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[mod_name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def _run_shared_bot_migrations(*, already_holding_migration_lock: bool = False) -> None:
+    """Apply shared soldium-bot ``init_db()`` on the shared users.db.
+
+    Phase 11: bot owns these migrations. Dashboard invokes this only as an explicit
+    operational bridge when the shared DB is incomplete and bot-first startup is not
+    guaranteed.
+
+    When ``already_holding_migration_lock`` is True (Phase 12 dashboard path), call the
+    unlocked critical section so we do not deadlock on a second import of
+    ``migration_lock`` under bot import isolation.
+    """
+    from database_connector import DB_PATH
+
+    try:
+        bot_root = Path(__file__).resolve().parent.parent / "soldium-bot"
+        if not bot_root.is_dir():
+            raise SharedBotMigrationError(f"soldium-bot root not found: {bot_root}")
+        with _bot_import_isolation(bot_root):
+            import database as bot_db  # intentional: load bot package under isolation
+
+            bot_db.DB_PATH = Path(DB_PATH)
+            if already_holding_migration_lock:
+                bot_db._init_db_under_migration_lock()
+            else:
+                bot_db.init_db()
+    except SharedBotMigrationError:
+        raise
+    except Exception as exc:
+        logger.exception(
+            "CRITICAL: shared bot database migration (init_db) failed for %s",
+            DB_PATH,
+        )
+        raise SharedBotMigrationError(
+            f"Shared bot init_db() failed for {DB_PATH}: {exc}"
+        ) from exc
+
+
+async def ensure_shared_bot_schema() -> None:
+    """Ensure bot-owned shared schema exists without dashboard duplicating bot ALTERs.
+
+    Ownership: soldium-bot ``database.init_db()`` owns users/orders/deposits/smm_services/
+    providers and related tables. Dashboard does not independently ALTER those tables.
+
+    Phase 12: when pending migrations are detected, acquire the shared migration lock,
+    **re-check** pending state, then bridge to bot ``init_db()`` only if still needed.
+
+    When nothing is pending, still run read-only :func:`verify_required_bot_schema`
+    so an under-reported detector cannot leave startup looking healthy.
+    """
+    from database_connector import DB_PATH
+
+    pending = list_pending_bot_migrations()
+    if not pending:
+        logger.info("Shared bot schema already complete; skipping bot init_db()")
+        verify_required_bot_schema()
         return
 
-    await db.execute(
-        """
-        INSERT OR IGNORE INTO providers (slug, name, api_base_url, adapter_type, is_active)
-        VALUES ('gozibra', 'Gozibra', ?, 'gozibra_v2', 1)
-        """,
-        (api_url,),
+    logger.warning(
+        "Shared bot schema incomplete (%s pending); waiting for migration lock "
+        "before bridge. Pending sample: %s",
+        len(pending),
+        pending[:8],
     )
-    for account_key, env_name in (
-        ("default", "SMM_KEY_DEFAULT"),
-        ("instagram", "SMM_KEY_INSTAGRAM"),
-        ("facebook", "SMM_KEY_FACEBOOK"),
-        ("tiktok", "SMM_KEY_TIKTOK"),
-    ):
-        if not os.environ.get(env_name, "").strip():
-            continue
-        await db.execute(
-            """
-            INSERT OR IGNORE INTO provider_accounts
-                (provider_slug, account_key, api_key_env, display_name, is_active)
-            VALUES ('gozibra', ?, ?, ?, 1)
-            """,
-            (account_key, env_name, _default_account_label(account_key)),
-        )
+    ml = _load_bot_migration_lock_module()
+    try:
+        with ml.migration_lock(
+            db_path=Path(DB_PATH),
+            holder="soldium-dashboard",
+        ):
+            pending_after = list_pending_bot_migrations()
+            if not pending_after:
+                logger.info(
+                    "Shared bot schema became complete while waiting for migration "
+                    "lock; skipping bot init_db()"
+                )
+                verify_required_bot_schema()
+                return
+            logger.warning(
+                "Migration lock held; applying bot init_db() bridge "
+                "(%s still pending). Sample: %s",
+                len(pending_after),
+                pending_after[:8],
+            )
+            _run_shared_bot_migrations(already_holding_migration_lock=True)
+            verify_required_bot_schema()
+    except ml.MigrationLockTimeout as exc:
+        logger.error("Dashboard could not acquire migration lock: %s", exc)
+        raise SharedBotMigrationError(str(exc)) from exc
 
 
-def _default_account_label(account_key: str) -> str:
-    from services.provider_registry import default_display_name_for_account
+async def ensure_smm_services_table() -> None:
+    """Compatibility alias: bot owns ``smm_services`` / providers / orders schema.
 
-    return default_display_name_for_account(account_key)
-
-
-async def _backfill_account_display_names(db) -> None:
-    async with db.execute(
-        "SELECT id, account_key, display_name FROM provider_accounts"
-    ) as cursor:
-        rows = await cursor.fetchall()
-    for row in rows:
-        current = str(row["display_name"] or "").strip()
-        if current:
-            continue
-        label = _default_account_label(str(row["account_key"]))
-        await db.execute(
-            "UPDATE provider_accounts SET display_name = ? WHERE id = ?",
-            (label, int(row["id"])),
-        )
+    Historically this function CREATEd/ALTERed bot tables from the dashboard. That
+    duplication is removed; callers now go through :func:`ensure_shared_bot_schema`.
+    """
+    await ensure_shared_bot_schema()
 
 
 async def ensure_timed_announcements_tables() -> None:
+    """Dashboard ensure for timed announcement UI tables (CREATE IF NOT EXISTS only).
+
+    Column upgrades such as ``auto_delete_seconds`` are bot-owned via ``init_db()`` /
+    :func:`ensure_shared_bot_schema` — dashboard does not ALTER them here.
+    """
     async with get_db() as db:
         await db.execute(TIMED_ANNOUNCEMENTS_DDL)
         await db.execute(TIMED_ANNOUNCEMENT_DISMISSALS_DDL)
         await db.execute(TIMED_ANNOUNCEMENTS_INDEX)
-        ta_cols = await _table_columns(db, "timed_announcements")
-        if "auto_delete_seconds" not in ta_cols:
-            await db.execute(
-                "ALTER TABLE timed_announcements ADD COLUMN auto_delete_seconds INTEGER"
-            )
         await db.execute(SCHEDULED_DELETIONS_DDL)
         await db.execute(SCHEDULED_DELETIONS_INDEX)
         await db.commit()
