@@ -5,7 +5,8 @@ Stable Telegram-friendly contract over PublishedStorefrontProjection.
 
 Never reads ``smm_services``. Never creates orders, debits balance, calls
 providers, or mutates Catalog/publication state. Execution identity always
-comes from the publication snapshot exposed by the projection.
+comes from the **live** Catalog execution source exposed by the projection
+(publication is a visibility gate only).
 """
 
 from __future__ import annotations
@@ -175,6 +176,8 @@ class StorefrontService:
     fulfillment_mode: str
     target_policy: StorefrontTargetPolicy
     orderable: bool
+    parent_entry_id: str | None = None
+    sort_order: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -202,6 +205,8 @@ class StorefrontService:
             "fulfillment_mode_label_ar": fulfillment_mode_label_ar(self.fulfillment_mode),
             "target_policy": self.target_policy.to_dict(),
             "orderable": self.orderable,
+            "parent_entry_id": self.parent_entry_id,
+            "sort_order": self.sort_order,
         }
 
 
@@ -370,6 +375,8 @@ def _map_service(svc: PublishedStorefrontService) -> StorefrontService:
         fulfillment_mode=svc.fulfillment_mode,
         target_policy=_map_target_policy(svc.target_policy),
         orderable=_is_orderable(svc),
+        parent_entry_id=svc.parent_entry_id,
+        sort_order=int(svc.sort_order or 0),
     )
 
 

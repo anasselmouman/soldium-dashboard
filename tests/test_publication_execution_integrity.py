@@ -1,13 +1,14 @@
 # -*- coding: utf-8 -*-
-"""Phase 9B.1-R — Publication / execution integrity gate (behavior lock).
+"""Publication / execution integrity (Catalog SoT customer projection).
 
-Documents and locks the intentional architecture:
+Locks:
 
-- Publication snapshots are immutable (including execution identity).
+- Publication snapshots remain immutable (audit / history / fingerprint).
 - Changing the live execution source does NOT rewrite the published snapshot.
-- Eligibility uses live readiness (existing rule); display/order-facing
-  execution comes from the publish snapshot via PublishedStorefrontProjection.
+- Customer-facing projection uses **live** Catalog execution/commercial data.
+- Publication remains a visibility gate; live readiness gates eligibility.
 - Removing/invalidating the live source drops eligibility / projection visibility.
+- Projection never reads ``smm_services``.
 """
 
 from __future__ import annotations
@@ -115,8 +116,8 @@ def _ready_service(
     return core.get_service(svc.id)
 
 
-def test_source_change_keeps_published_execution_and_eligibility(catalog_db: Path):
-    """A→B: snapshot stays A; live ready on B ⇒ still customer-eligible (immutable pub)."""
+def test_source_change_keeps_published_snapshot_live_projection(catalog_db: Path):
+    """A→B: snapshot stays A; customer projection follows live B."""
     with catalog_transaction(catalog_db) as conn:
         core = CatalogCoreService(conn)
         pub = CatalogPublicationService(conn)
@@ -143,10 +144,9 @@ def test_source_change_keeps_published_execution_and_eligibility(catalog_db: Pat
         assert live.provider_slug == "other"
 
         got = PublishedStorefrontProjection(conn).get_service(svc.id)
-        assert got.execution.provider_slug == "gozibra"
-        assert got.execution.provider_account_key == "default"
-        assert got.execution.external_service_id == "123"
-        # 8G-compatible handoff fields on projection DTO
+        assert got.execution.provider_slug == "other"
+        assert got.execution.provider_account_key == "main"
+        assert got.execution.external_service_id == "999"
         assert set(got.execution.to_dict().keys()) == {
             "provider_slug",
             "provider_account_key",
@@ -154,7 +154,7 @@ def test_source_change_keeps_published_execution_and_eligibility(catalog_db: Pat
         }
 
 
-def test_external_id_only_change_keeps_snapshot(catalog_db: Path):
+def test_external_id_only_change_keeps_snapshot_live_projection(catalog_db: Path):
     with catalog_transaction(catalog_db) as conn:
         core = CatalogCoreService(conn)
         pub = CatalogPublicationService(conn)
@@ -166,8 +166,10 @@ def test_external_id_only_change_keeps_snapshot(catalog_db: Path):
             provider_account_key="default",
             external_service_id="222",
         )
+        latest = pub.get_latest_publish(svc.id)
+        assert str(latest.external_service_id) == "111"
         got = PublishedStorefrontProjection(conn).get_service(svc.id)
-        assert got.execution.external_service_id == "111"
+        assert got.execution.external_service_id == "222"
         assert pub.get_publication_status(svc.id)["customer_catalog_eligible"] is True
 
 
@@ -195,8 +197,8 @@ def test_source_removal_excludes_from_projection(catalog_db: Path):
             PublishedStorefrontProjection(conn).get_service(svc.id)
 
 
-def test_readiness_restore_returns_snapshot_execution(catalog_db: Path):
-    """After live source restored, eligibility returns; customer still sees publish A."""
+def test_readiness_restore_returns_live_execution(catalog_db: Path):
+    """After live source restored, eligibility returns with current live identity."""
     with catalog_transaction(catalog_db) as conn:
         core = CatalogCoreService(conn)
         pub = CatalogPublicationService(conn)
@@ -223,7 +225,8 @@ def test_readiness_restore_returns_snapshot_execution(catalog_db: Path):
         st = pub.get_publication_status(svc.id)
         assert st["customer_catalog_eligible"] is True
         got = PublishedStorefrontProjection(conn).get_service(svc.id)
-        assert got.execution.external_service_id == "123"
+        assert got.execution.external_service_id == "999"
+        assert str(pub.get_latest_publish(svc.id).external_service_id) == "123"
 
 
 def test_archive_and_unpublish_exclude(catalog_db: Path):
@@ -242,7 +245,7 @@ def test_archive_and_unpublish_exclude(catalog_db: Path):
         assert pub.get_publication_status(b.id)["customer_catalog_eligible"] is False
 
 
-def test_projection_never_reads_live_source_or_smm(catalog_db: Path):
+def test_projection_uses_live_never_smm(catalog_db: Path):
     with catalog_transaction(catalog_db) as conn:
         core = CatalogCoreService(conn)
         pub = CatalogPublicationService(conn)
@@ -252,11 +255,9 @@ def test_projection_never_reads_live_source_or_smm(catalog_db: Path):
             svc.id,
             provider_slug="other",
             provider_account_key="main",
-            external_service_id="legacy-should-not-appear",
+            external_service_id="live-999",
         )
-        # Poison-shaped legacy row must not become storefront identity / execution
         got = PublishedStorefrontProjection(conn).get_service(svc.id)
         assert got.service_id.startswith("svc_")
-        assert got.execution.external_service_id == "555"
-        assert "legacy" not in got.execution.external_service_id
+        assert got.execution.external_service_id == "live-999"
         assert conn.execute("SELECT COUNT(*) FROM smm_services").fetchone()[0] == 1

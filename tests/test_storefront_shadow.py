@@ -292,7 +292,8 @@ def test_price_min_max_name_execution_mismatches(catalog_db: Path):
         assert row.severity == "dangerous"
 
 
-def test_execution_snapshot_not_live_source(catalog_db: Path):
+def test_execution_live_catalog_and_legacy_write_through(catalog_db: Path):
+    """Customer Catalog follows live source; Legacy write-through stays aligned."""
     with catalog_transaction(catalog_db) as conn:
         core = CatalogCoreService(conn)
         pub = CatalogPublicationService(conn)
@@ -313,10 +314,16 @@ def test_execution_snapshot_not_live_source(catalog_db: Path):
         )
         catalog = load_catalog_snapshots(conn)[0]
         assert catalog.execution is not None
-        assert catalog.execution.external_service_id == "123"
+        assert catalog.execution.external_service_id == "456"
+        leg = conn.execute(
+            "SELECT external_service_id, provider_api_account FROM smm_services "
+            "WHERE catalog_id='leg_exec'"
+        ).fetchone()
+        assert str(leg["external_service_id"]) == "456"
+        assert str(leg["provider_api_account"]) == "main"
         report = compare_storefronts(conn, generated_at="t2")
         row = next(r for r in report.rows if r.correlation == "correlated")
-        assert "execution_equal" in _codes(row)
+        assert "execution_changed" not in _codes(row)
 
 
 def test_catalog_only_and_legacy_only_when_published(catalog_db: Path):

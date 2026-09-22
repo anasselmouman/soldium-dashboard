@@ -30,7 +30,14 @@ from catalog_core.models import (
     CatalogService,
     ChangeExecutionSourceResult,
     ChangePriceResult,
+    DeleteServiceResult,
     ExecutionSource,
+)
+from catalog_core.legacy_write_through import (
+    resolve_legacy_catalog_id,
+    write_through_active_price,
+    write_through_execution_source,
+    write_through_legacy_fields,
 )
 from catalog_core.pricing import (
     DEFAULT_CURRENCY,
@@ -244,7 +251,22 @@ class CatalogCoreService:
                 target_link_type  # type: ignore[arg-type]
             )
         self.repo.update_service_fields(service_id, **update_kwargs)
-        return self.get_service(service_id)
+
+        # Bridged Legacy write-through (same SQLite transaction).
+        wt_kwargs: dict[str, Any] = {}
+        if name_ar is not None:
+            wt_kwargs["name_ar"] = new_name
+        if min_quantity is not None or max_quantity is not None:
+            wt_kwargs["min_quantity"] = new_min
+            wt_kwargs["max_quantity"] = new_max
+        if fulfillment_mode is not None:
+            wt_kwargs["fulfillment_mode"] = new_fmode
+        if status is not None:
+            wt_kwargs["catalog_status"] = status
+        wt = write_through_legacy_fields(self.connection, service_id, **wt_kwargs)
+        updated = self.get_service(service_id)
+        updated.legacy_write_through = wt.to_dict()
+        return updated
 
     def archive_service(self, service_id: str) -> CatalogService:
         return self.update_service(service_id, status="archived")
@@ -252,7 +274,182 @@ class CatalogCoreService:
     def restore_service(self, service_id: str, *, status: str = "draft") -> CatalogService:
         if status not in {"draft", "active"}:
             raise CatalogValidationError("يمكن الاستعادة كمسودة أو نشطة فقط")
+        existing = self.repo.get_service(service_id)
+        if not existing:
+            raise CatalogNotFoundError("الخدمة غير موجودة")
+        if existing.status != "archived":
+            raise CatalogValidationError("الاستعادة متاحة للخدمات المؤرشفة فقط")
         return self.update_service(service_id, status=status)
+
+    def _table_exists(self, name: str) -> bool:
+        row = self.connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=? LIMIT 1",
+            (name,),
+        ).fetchone()
+        return row is not None
+
+    def _count_sql(self, sql: str, params: tuple[Any, ...] = ()) -> int:
+        try:
+            row = self.connection.execute(sql, params).fetchone()
+            return int(row[0] if row else 0)
+        except sqlite3.Error:
+            return 0
+
+    def preview_service_delete(self, service_id: str) -> dict[str, Any]:
+        """Dependency / history impact for admin delete confirmation (archive-based)."""
+        svc = self.repo.get_service(service_id)
+        if not svc:
+            raise CatalogNotFoundError("الخدمة غير موجودة")
+
+        legacy_id = resolve_legacy_catalog_id(self.connection, service_id)
+        legacy_local = None
+        if legacy_id and self._table_exists("soldium_catalog_legacy_bridge"):
+            br = self.connection.execute(
+                "SELECT legacy_local_item_id FROM soldium_catalog_legacy_bridge "
+                "WHERE soldium_service_id = ? LIMIT 1",
+                (service_id,),
+            ).fetchone()
+            if br:
+                legacy_local = str(br["legacy_local_item_id"] or "").strip() or None
+
+        order_ids = [x for x in (legacy_id, legacy_local) if x]
+        orders_count = 0
+        if order_ids and self._table_exists("orders"):
+            # Prefer catalog_id; also match service_id for older rows.
+            cols = {
+                str(r[1])
+                for r in self.connection.execute("PRAGMA table_info(orders)").fetchall()
+            }
+            clauses: list[str] = []
+            params: list[Any] = []
+            if "catalog_id" in cols:
+                clauses.append(
+                    f"catalog_id IN ({','.join('?' for _ in order_ids)})"
+                )
+                params.extend(order_ids)
+            if "service_id" in cols:
+                clauses.append(
+                    f"service_id IN ({','.join('?' for _ in order_ids)})"
+                )
+                params.extend(order_ids)
+            if clauses:
+                orders_count = self._count_sql(
+                    f"SELECT COUNT(*) FROM orders WHERE {' OR '.join(clauses)}",
+                    tuple(params),
+                )
+
+        scheduled_count = 0
+        if order_ids and self._table_exists("scheduled_orders"):
+            scheduled_count = self._count_sql(
+                f"SELECT COUNT(*) FROM scheduled_orders WHERE service_id IN "
+                f"({','.join('?' for _ in order_ids)})",
+                tuple(order_ids),
+            )
+
+        prices_total = self._count_sql(
+            "SELECT COUNT(*) FROM soldium_catalog_prices WHERE service_id = ?",
+            (service_id,),
+        )
+        sources_total = self._count_sql(
+            "SELECT COUNT(*) FROM soldium_catalog_execution_sources WHERE service_id = ?",
+            (service_id,),
+        )
+        sources_active = self._count_sql(
+            "SELECT COUNT(*) FROM soldium_catalog_execution_sources "
+            "WHERE service_id = ? AND status = 'active'",
+            (service_id,),
+        )
+        publications_total = 0
+        publication_status = "unpublished"
+        if self._table_exists("soldium_catalog_publications"):
+            publications_total = self._count_sql(
+                "SELECT COUNT(*) FROM soldium_catalog_publications WHERE service_id = ?",
+                (service_id,),
+            )
+            try:
+                from catalog_core.publication import CatalogPublicationService
+
+                publication_status = CatalogPublicationService(
+                    self.connection
+                ).get_publication_status(service_id).get(
+                    "publication_status", "unpublished"
+                )
+            except Exception:
+                publication_status = "unpublished"
+
+        warnings: list[str] = []
+        if orders_count:
+            warnings.append(
+                f"توجد {orders_count} طلبات تاريخية مرتبطة — لن تُحذف."
+            )
+        if scheduled_count:
+            warnings.append(
+                f"توجد {scheduled_count} طلبات مجدولة مرتبطة — لن تُحذف."
+            )
+        if publications_total:
+            warnings.append(
+                f"يوجد سجل نشر ({publications_total}) — يبقى كما هو دون تعديل."
+            )
+        if prices_total:
+            warnings.append(
+                f"سجل الأسعار ({prices_total}) يبقى محفوظاً."
+            )
+        if sources_total:
+            warnings.append(
+                f"سجل مصادر التنفيذ ({sources_total}) يبقى محفوظاً."
+            )
+        if legacy_id:
+            warnings.append(
+                "الخدمة مربوطة بتليجرام — ستُخفى من البوت دون حذف صفها التقليدي."
+            )
+        if publication_status == "published":
+            warnings.append(
+                "الخدمة منشورة حالياً — ستُؤرشف وتُخفى دون مسح لقطات النشر."
+            )
+
+        return {
+            "service_id": service_id,
+            "name_ar": svc.name_ar,
+            "status": svc.status,
+            "already_archived": svc.status == "archived",
+            "mode": "archive",
+            "physical_delete": False,
+            "has_legacy_bridge": legacy_id is not None,
+            "legacy_catalog_id": legacy_id,
+            "orders_count": orders_count,
+            "scheduled_orders_count": scheduled_count,
+            "price_records_count": prices_total,
+            "execution_source_records_count": sources_total,
+            "active_execution_source": sources_active > 0,
+            "publication_records_count": publications_total,
+            "publication_status": publication_status,
+            "warnings": warnings,
+            "message_ar": (
+                "سيتم أرشفة الخدمة (حذف آمن). لن تُحذف الطلبات ولا السجلات التاريخية."
+                if svc.status != "archived"
+                else "الخدمة مؤرشفة بالفعل."
+            ),
+        }
+
+    def delete_service(self, service_id: str) -> DeleteServiceResult:
+        """Admin «حذف الخدمة» — archive-based soft delete (never physical).
+
+        Preserves orders, publication history, price/execution history, and
+        the legacy bridge row. Deactivates Telegram via write-through
+        (is_active=0) when bridged.
+        """
+        impact = self.preview_service_delete(service_id)
+        if impact["already_archived"]:
+            raise CatalogValidationError("الخدمة محذوفة بالفعل (مؤرشفة)")
+
+        archived = self.update_service(service_id, status="archived")
+        return DeleteServiceResult(
+            service=archived,
+            mode="archive",
+            physical_delete=False,
+            message_ar="تم حذف الخدمة بأمان (أرشفة). لم تُمس السجلات التاريخية.",
+            impact=impact,
+        )
 
     def move_service(
         self,
@@ -490,11 +687,18 @@ class CatalogCoreService:
             ) from exc
 
         active = self.repo.get_active_price(service_id)
+        assert active is not None
+        wt = write_through_active_price(
+            self.connection,
+            service_id,
+            amount_millimes=active.amount_millimes,
+        )
         return ChangePriceResult(
             unchanged=False,
             message="تم حفظ السعر",
             current=active,
             previous=previous,
+            legacy_write_through=wt.to_dict(),
         )
 
     # ── execution sources ──
@@ -601,11 +805,20 @@ class CatalogCoreService:
         )
 
         active = self.repo.get_active_execution_source(service_id)
+        assert active is not None
+        wt = write_through_execution_source(
+            self.connection,
+            service_id,
+            provider_slug=active.provider_slug,
+            provider_account_key=active.provider_account_key,
+            external_service_id=active.external_service_id,
+        )
         return ChangeExecutionSourceResult(
             unchanged=False,
             message="تم تغيير مصدر التنفيذ",
             current=active,
             previous=previous,
+            legacy_write_through=wt.to_dict(),
         )
 
     def list_execution_source_events(

@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
-"""Phase 9Q — Storefront backend gateway (Legacy | Catalog | Pilot).
+"""Storefront backend gateway (Legacy | Catalog | Pilot).
 
-Centralizes backend selection. Default is always Legacy.
-Catalog is never selected when the flag is missing/invalid.
+Centralizes backend selection. Default is Catalog (customer SoT).
+Explicit ``STOREFRONT_BACKEND=legacy`` remains emergency rollback only.
 
 Controlled production pilot (43 published cohort) uses a separate kill switch
 (STOREFRONT_CATALOG_PILOT) and must NOT set STOREFRONT_BACKEND=catalog.
@@ -34,7 +34,7 @@ from catalog_core.storefront_adapter import (
 
 BackendName = Literal["legacy", "catalog", "pilot"]
 
-DEFAULT_BACKEND: BackendName = "legacy"
+DEFAULT_BACKEND: BackendName = "catalog"
 ENV_STOREFRONT_BACKEND = "STOREFRONT_BACKEND"
 
 # Module-level override for isolated tests (never used by production boot).
@@ -47,15 +47,18 @@ def resolve_storefront_backend_name(
     *,
     environ: dict[str, str] | None = None,
 ) -> BackendName:
-    """Map config to backend name. Missing/invalid → legacy (safe default)."""
+    """Map config to backend name. Missing/invalid → catalog (production SoT).
+
+    Explicit ``legacy`` remains available as emergency rollback only.
+    """
     if raw is None:
         env = environ if environ is not None else os.environ
         raw = env.get(ENV_STOREFRONT_BACKEND, "")
     text = str(raw or "").strip().lower()
-    if text == "catalog":
-        return "catalog"
-    # Explicit legacy, empty, missing, typos, "prod", etc. → legacy
-    return "legacy"
+    if text == "legacy":
+        return "legacy"
+    # Default / catalog / empty / typos → catalog (Catalog SoT)
+    return "catalog"
 
 
 def set_storefront_backend_override(name: BackendName | None) -> None:
@@ -151,9 +154,11 @@ class OrderCreateBridge:
     fulfillment_mode: str
     external_service_id_snapshot: str
     catalog_id: str | None = None
+    soldium_service_id: str | None = None
+    provider_cost_dh: float = 0.0
 
     def to_create_kwargs(self) -> dict[str, Any]:
-        return {
+        kwargs: dict[str, Any] = {
             "user_id": self.user_id,
             "service_name": self.service_name,
             "service_id": self.service_id,
@@ -165,28 +170,100 @@ class OrderCreateBridge:
             "fulfillment_mode": self.fulfillment_mode,
             "catalog_id": self.catalog_id,
             "external_service_id_snapshot": self.external_service_id_snapshot,
+            "provider_cost_dh": self.provider_cost_dh,
         }
+        if self.soldium_service_id is not None:
+            kwargs["soldium_service_id"] = self.soldium_service_id
+        return kwargs
+
+
+def lookup_provider_rate_usd(
+    connection: sqlite3.Connection,
+    *,
+    provider_slug: str,
+    provider_account_key: str,
+    external_service_id: str,
+) -> float:
+    """Best-effort provider USD rate from latest successful Catalog provider snapshot.
+
+    Never invents a rate. Returns 0.0 when no snapshot item is available.
+    """
+    slug = str(provider_slug or "").strip().lower()
+    account = str(provider_account_key or "").strip().lower()
+    external = str(external_service_id or "").strip()
+    if not slug or not account or not external:
+        return 0.0
+    try:
+        row = connection.execute(
+            """
+            SELECT i.provider_rate
+            FROM soldium_provider_catalog_snapshot_items i
+            JOIN soldium_provider_catalog_snapshots s ON s.id = i.snapshot_id
+            WHERE s.status = 'success'
+              AND LOWER(s.provider_slug) = ?
+              AND LOWER(s.provider_account_key) = ?
+              AND TRIM(i.external_service_id) = ?
+            ORDER BY s.discovered_at DESC, s.rowid DESC
+            LIMIT 1
+            """,
+            (slug, account, external),
+        ).fetchone()
+    except sqlite3.Error:
+        return 0.0
+    if row is None:
+        return 0.0
+    try:
+        return float(row["provider_rate"] or 0)
+    except (TypeError, ValueError, KeyError, IndexError):
+        try:
+            return float(row[0] or 0)
+        except (TypeError, ValueError, IndexError):
+            return 0.0
 
 
 def order_intent_to_create_bridge(
     intent: StorefrontOrderIntent,
     *,
     user_id: int,
+    connection: sqlite3.Connection | None = None,
+    pricing_mode: str | None = None,
 ) -> OrderCreateBridge:
-    """Phase 9P: amount freezes at Order create + balance hold from quoted millimes."""
+    """Amount freezes at Order create + balance hold from quoted Catalog millimes."""
     amount_dh = float(intent.quoted_amount_millimes) / 1000.0
     external = str(intent.external_service_id or "").strip()
-    if not external or not isinstance(intent.external_service_id, str):
-        # Keep TEXT; reject empty at boundary
-        if not external:
-            raise StorefrontAdapterError(
-                "معرّف تنفيذ المزوّد مفقود في نية الطلب",
-                code="execution_identity_unavailable",
-                details={"service_id": intent.service_id},
-            )
+    if not external:
+        raise StorefrontAdapterError(
+            "معرّف تنفيذ المزوّد مفقود في نية الطلب",
+            code="execution_identity_unavailable",
+            details={"service_id": intent.service_id},
+        )
+    soldium_id = str(intent.service_id or "").strip()
+    provider_cost = 0.0
+    mode = str(pricing_mode or intent.pricing_mode or "per_1000").strip().lower()
+    if connection is not None:
+        rate = lookup_provider_rate_usd(
+            connection,
+            provider_slug=str(intent.provider_slug),
+            provider_account_key=str(intent.provider_account_key),
+            external_service_id=external,
+        )
+        if rate > 0:
+            try:
+                from utils.order_economics import compute_provider_cost_dh
+
+                provider_cost = float(
+                    compute_provider_cost_dh(
+                        int(intent.quantity),
+                        provider_price_usd=rate,
+                        local_price_dh=0.0,
+                        price_per_unit=(mode == "per_unit"),
+                    )
+                )
+            except Exception:
+                provider_cost = 0.0
     return OrderCreateBridge(
         user_id=int(user_id),
-        service_id=str(intent.service_id),
+        service_id=soldium_id,
         service_name=str(intent.service_name_ar),
         link=str(intent.target or ""),
         quantity=int(intent.quantity),
@@ -195,12 +272,15 @@ def order_intent_to_create_bridge(
         api_account=str(intent.provider_account_key),
         fulfillment_mode=str(intent.fulfillment_mode),
         external_service_id_snapshot=external,
-        catalog_id=None,
+        # Catalog SoT: store immutable svc_* for NEW orders (TEXT; historical rows unchanged).
+        catalog_id=soldium_id if soldium_id.startswith("svc_") else None,
+        soldium_service_id=soldium_id if soldium_id.startswith("svc_") else None,
+        provider_cost_dh=float(provider_cost),
     )
 
 
 class CatalogStorefrontBackend:
-    """Published Catalog only — never reads smm_services."""
+    """Live Catalog customer storefront — never reads smm_services."""
 
     def __init__(self, connection: sqlite3.Connection) -> None:
         self._adapter = StorefrontAdapter(connection)
@@ -211,7 +291,7 @@ class CatalogStorefrontBackend:
         return "catalog"
 
     def refresh(self) -> None:
-        # Projection is built per call; nothing to reload from Legacy.
+        # Projection is built per call from live Catalog; nothing to reload.
         return None
 
     def list_platforms(self) -> list[StorefrontPlatform]:
@@ -272,36 +352,128 @@ class CatalogStorefrontBackend:
         return True
 
     def navigation_tree(self) -> dict[str, Any]:
-        """Build a Telegram-keyboard-compatible tree from published Catalog.
+        """Build Telegram navigation from the live Catalog entries tree.
 
-        Groups by target_policy.platform_key / section_key / subsection_key.
-        Service ids remain ``svc_*``. Does not read ``smm_services``.
+        Placement SoT = Catalog entries (arbitrary depth). ``target_*`` is not used
+        for menu hierarchy. Only customer-eligible services (published + active +
+        ready) appear; empty node branches are omitted.
         """
-        tree: dict[str, Any] = {}
-        for svc in self.list_services():
-            pk = str(svc.target_policy.platform_key or "").strip() or "other"
-            sk = str(svc.target_policy.section_key or "").strip() or "direct"
-            ssk = (
-                str(svc.target_policy.subsection_key or "").strip() or None
-            )
-            item = catalog_service_to_legacy_item(svc)
-            plat = tree.setdefault(
-                pk,
-                {"title": pk, "sections": {}, "direct_items": []},
-            )
-            if sk in {"", "direct", "none"} and not ssk:
-                plat.setdefault("direct_items", []).append(item)
-                continue
-            section = plat["sections"].setdefault(
-                sk, {"title": sk, "items": [], "subsections": {}}
-            )
-            if ssk:
-                sub = section["subsections"].setdefault(
-                    ssk, {"title": ssk, "items": []}
+        from catalog_core.repository import CatalogRepository
+
+        eligible = {
+            s.service_id: s for s in self.list_services()
+        }
+        if not eligible:
+            return {}
+
+        repo = CatalogRepository(self._connection)
+        entries = repo.list_all_entries_hydrated()
+        children: dict[str | None, list[Any]] = {}
+        for ent in entries:
+            children.setdefault(ent.parent_entry_id, []).append(ent)
+
+        # Nodes that contain at least one eligible service in their subtree.
+        service_parents = {
+            s.parent_entry_id
+            for s in eligible.values()
+            if s.parent_entry_id is not None
+        }
+        # Also services at root (parent None) via parent_entry_id on projection
+        for s in eligible.values():
+            # Projection parent_entry_id is the Catalog entry parent of the service entry.
+            pass
+
+        # Collect ancestor entry ids for every eligible service's parent chain.
+        keep_nodes: set[str] = set()
+        for svc in eligible.values():
+            parent = svc.parent_entry_id
+            if parent:
+                for anc in repo.ancestor_entry_ids(parent):
+                    keep_nodes.add(anc)
+
+        def _node_bucket(entry_id: str, title: str) -> dict[str, Any]:
+            return {
+                "title": title,
+                "entry_id": entry_id,
+                "sections": {},
+                "direct_items": [],
+                "items": [],
+                "subsections": {},
+            }
+
+        def _services_under(parent_entry_id: str | None) -> list[dict[str, Any]]:
+            return [
+                catalog_service_to_legacy_item(s)
+                for s in sorted(
+                    (
+                        s
+                        for s in eligible.values()
+                        if s.parent_entry_id == parent_entry_id
+                    ),
+                    key=lambda s: (s.sort_order, s.name_ar.casefold(), s.service_id),
                 )
-                sub["items"].append(item)
-            else:
-                section["items"].append(item)
+            ]
+
+        def _build_node(entry: Any) -> dict[str, Any] | None:
+            if entry.entry_type != "node":
+                return None
+            if entry.id not in keep_nodes and not _services_under(entry.id):
+                return None
+            if str(getattr(entry, "status", "active") or "active") == "archived":
+                return None
+            title = str(getattr(entry, "name_ar", None) or entry.id)
+            node: dict[str, Any] = {
+                "title": title,
+                "entry_id": entry.id,
+                "sections": {},
+                "direct_items": [],
+                "items": [],
+                "subsections": {},
+            }
+            # Direct services under this node
+            node["items"] = _services_under(entry.id)
+            # Child nodes
+            for child in children.get(entry.id, []):
+                if child.entry_type != "node":
+                    continue
+                if child.id not in keep_nodes and not _services_under(child.id):
+                    continue
+                if str(getattr(child, "status", "active") or "active") == "archived":
+                    continue
+                child_built = _build_node(child)
+                if child_built is None:
+                    continue
+                # Nested child nodes go into sections (first level under root)
+                # or subsections recursively via nested sections shape:
+                # We store all child nodes in "sections" keyed by entry_id, and
+                # each child may itself have nested "sections" for deeper levels.
+                # For Telegram keyboards that expect subsections, also mirror
+                # one level into "subsections" when the child has only deeper nodes.
+                node["sections"][child.id] = child_built
+            # If this node has no content, drop it
+            if not node["items"] and not node["sections"] and not node["direct_items"]:
+                return None
+            return node
+
+        tree: dict[str, Any] = {}
+        # Root-level services (parent_entry_id is None) → synthetic "direct" platform
+        root_services = _services_under(None)
+        for root_ent in children.get(None, []):
+            if root_ent.entry_type != "node":
+                continue
+            built = _build_node(root_ent)
+            if built is None:
+                continue
+            tree[root_ent.id] = built
+        if root_services:
+            tree["_root"] = {
+                "title": "خدمات",
+                "entry_id": None,
+                "sections": {},
+                "direct_items": root_services,
+                "items": [],
+                "subsections": {},
+            }
         return tree
 
 
@@ -323,7 +495,11 @@ def catalog_service_to_legacy_item(svc: StorefrontService) -> dict[str, Any]:
         "link_type": svc.target_policy.link_type,
         "link_prompt_key": svc.target_policy.link_prompt_key,
         "note": svc.note_ar,
-        "catalog_id": None,
+        "catalog_id": svc.service_id,
+        "soldium_service_id": svc.service_id,
+        "platform_key": svc.target_policy.platform_key,
+        "section_key": svc.target_policy.section_key,
+        "subsection_key": svc.target_policy.subsection_key,
     }
 
 
@@ -579,12 +755,13 @@ def build_storefront(
     """Factory — single selection point for Legacy vs Catalog vs Pilot.
 
     Safe defaults:
-      STOREFRONT_BACKEND missing/invalid → legacy
+      STOREFRONT_BACKEND missing/invalid → catalog (production SoT)
+      STOREFRONT_BACKEND=legacy → emergency rollback only
       STOREFRONT_CATALOG_PILOT missing/invalid → disabled
 
-    Pilot mode requires STOREFRONT_BACKEND=legacy (or unset) plus an explicit
-    STOREFRONT_CATALOG_PILOT=enabled. Global STOREFRONT_BACKEND=catalog remains
-    full Catalog-only (not used for the 43-service production pilot).
+    Pilot mode requires STOREFRONT_BACKEND=legacy plus an explicit
+    STOREFRONT_CATALOG_PILOT=enabled. Global STOREFRONT_BACKEND=catalog is
+    full Catalog-only (production customer path).
     """
     name = backend
     if name is None and _test_override is not None:

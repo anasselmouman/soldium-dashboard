@@ -174,7 +174,9 @@ def test_immutability_after_live_edits(catalog_db: Path):
         adapted = StorefrontAdapter(conn).get_service(sid)
         assert proj.content_fingerprint == fp
         assert adapted.content_fingerprint == fp
-        assert str(proj.execution.external_service_id) == "9001"
+        assert proj.name_ar == "اسم جديد"
+        assert str(proj.execution.external_service_id) == "999-NEW"
+        assert str(adapted.execution.external_service_id) == "999-NEW"
 
 
 def test_legacy_isolation(catalog_db: Path):

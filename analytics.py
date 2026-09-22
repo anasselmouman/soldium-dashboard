@@ -110,6 +110,16 @@ _PROFIT_ORDERS_FROM = """
                   = LOWER(COALESCE(NULLIF(TRIM(s2.provider_slug), ''), 'gozibra'))
             ORDER BY s2.rowid
             LIMIT 1
+        ),
+        (
+            SELECT s2.rowid
+            FROM smm_services AS s2
+            WHERE TRIM(CAST(COALESCE(o.catalog_id, '') AS TEXT)) = TRIM(CAST(s2.catalog_id AS TEXT))
+              AND TRIM(CAST(COALESCE(o.catalog_id, '') AS TEXT)) != ''
+              AND LOWER(COALESCE(NULLIF(TRIM(o.provider_slug), ''), 'gozibra'))
+                  = LOWER(COALESCE(NULLIF(TRIM(s2.provider_slug), ''), 'gozibra'))
+            ORDER BY s2.rowid
+            LIMIT 1
         )
     )
     LEFT JOIN (

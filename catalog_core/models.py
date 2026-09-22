@@ -59,6 +59,7 @@ class CatalogService:
     current_source: "ExecutionSource | None" = None
     current_price: "CatalogPrice | None" = None
     readiness: dict[str, Any] | None = None
+    legacy_write_through: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         data = {
@@ -96,6 +97,8 @@ class CatalogService:
         }
         if self.readiness is not None:
             data["readiness"] = self.readiness
+        if self.legacy_write_through is not None:
+            data["legacy_write_through"] = self.legacy_write_through
         return data
 
 
@@ -209,14 +212,18 @@ class ChangeExecutionSourceResult:
     message: str
     current: ExecutionSource | None
     previous: ExecutionSource | None = None
+    legacy_write_through: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        out: dict[str, Any] = {
             "unchanged": self.unchanged,
             "message": self.message,
             "current": self.current.to_dict() if self.current else None,
             "previous": self.previous.to_dict() if self.previous else None,
         }
+        if self.legacy_write_through is not None:
+            out["legacy_write_through"] = self.legacy_write_through
+        return out
 
 
 PriceStatus = Literal["active", "historical"]
@@ -267,11 +274,37 @@ class ChangePriceResult:
     message: str
     current: CatalogPrice | None
     previous: CatalogPrice | None = None
+    legacy_write_through: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        out: dict[str, Any] = {
             "unchanged": self.unchanged,
             "message": self.message,
             "current": self.current.to_dict() if self.current else None,
             "previous": self.previous.to_dict() if self.previous else None,
+        }
+        if self.legacy_write_through is not None:
+            out["legacy_write_through"] = self.legacy_write_through
+        return out
+
+
+@dataclass
+class DeleteServiceResult:
+    """Admin delete is archive-based — never a physical Catalog row drop."""
+
+    service: CatalogService
+    mode: Literal["archive"] = "archive"
+    physical_delete: bool = False
+    message_ar: str = ""
+    impact: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "mode": self.mode,
+            "physical_delete": self.physical_delete,
+            "archive_based": True,
+            "message_ar": self.message_ar,
+            "impact": self.impact,
+            "service": self.service.to_dict(),
+            "legacy_write_through": self.service.legacy_write_through,
         }

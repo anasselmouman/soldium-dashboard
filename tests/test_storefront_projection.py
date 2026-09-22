@@ -191,7 +191,7 @@ def test_readiness_failure_excludes(catalog_db: Path):
         assert PublishedStorefrontProjection(conn).list_services() == []
 
 
-def test_snapshot_not_live_draft_name_and_price(catalog_db: Path):
+def test_live_edit_name_and_price_visible_without_republish(catalog_db: Path):
     with catalog_transaction(catalog_db) as conn:
         core = CatalogCoreService(conn)
         pub = CatalogPublicationService(conn)
@@ -199,16 +199,15 @@ def test_snapshot_not_live_draft_name_and_price(catalog_db: Path):
             core, name="الاسم المنشور", path=["منصة", "قسم"], amount_dh="3"
         )
         pub.publish(svc.id, published_by="admin")
-        # Live draft changes after publish
+        # Live Catalog changes after publish must appear (publication = visibility only)
         core.update_service(svc.id, name_ar="اسم مسودة جديد")
         core.change_price(svc.id, amount_dh="9", pricing_mode="per_1000", currency="MAD")
         got = PublishedStorefrontProjection(conn).get_service(svc.id)
-        assert got.name_ar == "الاسم المنشور"
-        assert got.amount_millimes == 3000
-        assert got.amount_millimes != 9000
+        assert got.name_ar == "اسم مسودة جديد"
+        assert got.amount_millimes == 9000
 
 
-def test_placement_from_publication_snapshot(catalog_db: Path):
+def test_placement_from_live_catalog_tree(catalog_db: Path):
     with catalog_transaction(catalog_db) as conn:
         core = CatalogCoreService(conn)
         pub = CatalogPublicationService(conn)
@@ -216,14 +215,12 @@ def test_placement_from_publication_snapshot(catalog_db: Path):
             core, name="Svc", path=["تيك توك", "مشاهدات", "عادي"]
         )
         pub.publish(svc.id, published_by="admin")
-        # Move live tree elsewhere — published placement must stay
+        # Move live tree — customer placement follows live Catalog entries
         other = core.create_node(name_ar="منصة أخرى", parent_entry_id=None)
         core.move_service(svc.id, new_parent_entry_id=other.entry_id)
         got = PublishedStorefrontProjection(conn).get_service(svc.id)
-        assert got.platform_label == "تيك توك"
-        assert got.section_label == "مشاهدات"
-        assert got.subsection_label == "عادي"
-        assert list(got.location_path) == ["تيك توك", "مشاهدات", "عادي"]
+        assert got.platform_label == "منصة أخرى"
+        assert list(got.location_path) == ["منصة أخرى"]
 
 
 def test_tree_listing_and_deterministic_order(catalog_db: Path):
@@ -257,7 +254,7 @@ def test_tree_listing_and_deterministic_order(catalog_db: Path):
         assert all_names == ["Alpha", "Beta", "Gamma"]
 
 
-def test_price_and_limits_and_execution_from_snapshot(catalog_db: Path):
+def test_price_and_limits_and_execution_from_live(catalog_db: Path):
     with catalog_transaction(catalog_db) as conn:
         core = CatalogCoreService(conn)
         pub = CatalogPublicationService(conn)
@@ -270,7 +267,7 @@ def test_price_and_limits_and_execution_from_snapshot(catalog_db: Path):
             pricing_mode="per_unit",
         )
         pub.publish(svc.id, published_by="admin")
-        # Change live execution — projection must keep snapshot
+        # Change live execution — projection must follow live Catalog
         core.change_execution_source(
             svc.id,
             provider_slug="gozibra",
@@ -283,7 +280,7 @@ def test_price_and_limits_and_execution_from_snapshot(catalog_db: Path):
         assert got.pricing_mode == "per_unit"
         assert got.min_quantity == 10
         assert got.max_quantity == 5000
-        assert got.execution.external_service_id == "7788"
+        assert got.execution.external_service_id == "9999"
         assert got.fulfillment_mode == "auto"
         assert got.target_policy.platform_key == "instagram"
         assert got.target_policy.section_key == "followers"
@@ -297,4 +294,14 @@ def test_no_smm_services_fallback(catalog_db: Path):
         )
         catalog = PublishedStorefrontProjection(conn).build()
         assert catalog.services == []
-        assert catalog.to_dict()["service_count"] == 0
+
+
+def test_draft_status_excluded_even_if_published_history(catalog_db: Path):
+    with catalog_transaction(catalog_db) as conn:
+        core = CatalogCoreService(conn)
+        pub = CatalogPublicationService(conn)
+        svc = _ready_service(core, name="Drafty", path=["P", "S"], external_id="555")
+        pub.publish(svc.id, published_by="admin")
+        core.update_service(svc.id, status="draft")
+        assert PublishedStorefrontProjection(conn).list_services() == []
+        assert PublishedStorefrontProjection(conn).build().to_dict()["service_count"] == 0

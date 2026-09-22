@@ -123,8 +123,11 @@ def test_snapshot_immutability_after_live_edits(catalog_db: Path):
         adapted = StorefrontAdapter(conn).get_service(sid)
         assert proj.content_fingerprint == fp
         assert adapted.content_fingerprint == fp
-        assert str(proj.execution.external_service_id) == "111"
-        assert str(adapted.execution.external_service_id) == "111"
+        assert proj.name_ar == "اسم جديد"
+        assert adapted.name_ar == "اسم جديد"
+        assert proj.amount_millimes == 9000
+        assert str(proj.execution.external_service_id) == "999-NEW"
+        assert str(adapted.execution.external_service_id) == "999-NEW"
         st = pub.get_publication_status(sid)
         assert st["has_unpublished_changes"] is True
 

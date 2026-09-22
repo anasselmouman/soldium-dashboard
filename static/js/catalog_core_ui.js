@@ -1189,6 +1189,11 @@
               <td class="p-2 text-center">
                 <button type="button" class="text-sky-300 text-xs underline" data-edit="${esc(s.id)}">تفاصيل</button>
                 <button type="button" class="text-sky-300 text-xs underline ms-2" data-move="${esc(s.id)}">نقل</button>
+                ${
+                  s.status !== "archived"
+                    ? `<button type="button" class="text-rose-300 text-xs underline ms-2" data-delete="${esc(s.id)}" data-delete-name="${esc(s.name_ar)}">حذف</button>`
+                    : `<button type="button" class="text-emerald-300 text-xs underline ms-2" data-restore="${esc(s.id)}">استعادة</button>`
+                }
               </td>
             </tr>`;
           })
@@ -1245,6 +1250,55 @@
         .join("")}</div>`;
     }
 
+    function openDeleteConfirm(serviceId, nameHint) {
+      return (async () => {
+        const data = await json(
+          `${API}/services/${encodeURIComponent(serviceId)}/delete-preview`
+        );
+        const preview = data.preview || {};
+        const warnings = (preview.warnings || [])
+          .map((w) => `<li>${esc(w)}</li>`)
+          .join("");
+        const modal = openModal({
+          title: "حذف الخدمة",
+          hideFormActions: true,
+          bodyHtml: `
+            <div class="space-y-3 text-sm">
+              <p class="text-slate-200">هل أنت متأكد من حذف هذه الخدمة؟</p>
+              <p class="text-white font-semibold">«${esc(
+                preview.name_ar || nameHint || "—"
+              )}»</p>
+              <p class="text-xs text-slate-400">${esc(
+                preview.message_ar ||
+                  "سيتم أرشفة الخدمة بأمان. لن تُحذف الطلبات ولا السجلات التاريخية."
+              )}</p>
+              ${
+                warnings
+                  ? `<ul class="list-disc ps-5 text-xs text-amber-200 space-y-1">${warnings}</ul>`
+                  : ""
+              }
+              <div class="flex justify-end gap-2 pt-2">
+                <button type="button" class="rounded-lg border border-slate-600 px-3 py-2" data-close="1">إلغاء</button>
+                <button type="button" id="btn-confirm-delete" class="rounded-lg bg-rose-700 hover:bg-rose-600 px-3 py-2 text-white">حذف الخدمة</button>
+              </div>
+            </div>`,
+        });
+        modal.querySelector("#btn-confirm-delete")?.addEventListener("click", async () => {
+          try {
+            const res = await json(
+              `${API}/services/${encodeURIComponent(serviceId)}/delete`,
+              { method: "POST", body: "{}" }
+            );
+            closeModal();
+            alertBox(res.message_ar || "تم حذف الخدمة (أرشفة)");
+            await load();
+          } catch (err) {
+            alertBox(err.message, "err");
+          }
+        });
+      })();
+    }
+
     async function openDetails(serviceId) {
       const [svcData, srcData, priceData, readyData, pubData] = await Promise.all([
         json(`${API}/services/${encodeURIComponent(serviceId)}`),
@@ -1292,7 +1346,7 @@
               }
               <button type="button" id="btn-pub-history" class="rounded-lg border border-slate-600 px-3 py-1.5 text-xs">سجل النشر</button>
             </div>
-            <p class="text-[11px] text-slate-500 mt-2">النشر إداري صريح ولا يغيّر تليجرام في هذه المرحلة.</p>
+            <p class="text-[11px] text-slate-500 mt-2">النشر إداري صريح ولا يغيّر تليجرام في هذه المرحلة. تعديلات الحفظ/السعر/المصدر للخدمات المربوطة تُزامن مباشرة إلى smm_services الذي يقرأه تليجرام.</p>
           </div>
           <div class="cat-section">
             <h4>معلومات الخدمة</h4>
@@ -1303,6 +1357,11 @@
             )}</div>
             <div class="flex flex-wrap gap-2 mt-3">
               <button type="button" id="btn-edit-identity" class="rounded-lg border border-slate-600 px-3 py-1.5 text-xs">تعديل بيانات الخدمة</button>
+              ${
+                s.status !== "archived"
+                  ? `<button type="button" id="btn-delete-service" class="rounded-lg border border-rose-700/70 text-rose-200 px-3 py-1.5 text-xs">حذف الخدمة</button>`
+                  : `<button type="button" id="btn-restore-service" class="rounded-lg border border-emerald-700/60 text-emerald-200 px-3 py-1.5 text-xs">استعادة الخدمة</button>`
+              }
             </div>
           </div>
           <div class="cat-section">
@@ -1409,8 +1468,27 @@
         }
       };
 
+      const confirmDeleteService = () =>
+        openDeleteConfirm(serviceId, s.name_ar);
+
       root.querySelector("#btn-edit-identity").addEventListener("click", () => {
         openIdentityEditor(null);
+      });
+
+      root.querySelector("#btn-delete-service")?.addEventListener("click", () => {
+        confirmDeleteService().catch((err) => alertBox(err.message, "err"));
+      });
+      root.querySelector("#btn-restore-service")?.addEventListener("click", async () => {
+        try {
+          await json(`${API}/services/${encodeURIComponent(serviceId)}/restore`, {
+            method: "POST",
+            body: JSON.stringify({ status: "active" }),
+          });
+          alertBox("تمت استعادة الخدمة");
+          await refreshAfter();
+        } catch (err) {
+          alertBox(err.message, "err");
+        }
       });
 
       root.querySelector("#btn-change-price").addEventListener("click", () => {
@@ -1860,8 +1938,28 @@
     document.getElementById("svc-tbody").addEventListener("click", (e) => {
       const edit = e.target.closest("[data-edit]");
       const move = e.target.closest("[data-move]");
+      const del = e.target.closest("[data-delete]");
+      const restore = e.target.closest("[data-restore]");
       if (edit) openDetails(edit.getAttribute("data-edit")).catch((err) => alertBox(err.message, "err"));
       if (move) openMove(move.getAttribute("data-move")).catch((err) => alertBox(err.message, "err"));
+      if (del) {
+        openDeleteConfirm(
+          del.getAttribute("data-delete"),
+          del.getAttribute("data-delete-name") || ""
+        ).catch((err) => alertBox(err.message, "err"));
+      }
+      if (restore) {
+        const sid = restore.getAttribute("data-restore");
+        json(`${API}/services/${encodeURIComponent(sid)}/restore`, {
+          method: "POST",
+          body: JSON.stringify({ status: "active" }),
+        })
+          .then(() => {
+            alertBox("تمت استعادة الخدمة");
+            return load();
+          })
+          .catch((err) => alertBox(err.message, "err"));
+      }
     });
 
     document.getElementById("svc-reload").onclick = () => {

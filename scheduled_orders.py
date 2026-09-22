@@ -306,10 +306,44 @@ async def _admin_user_exists(user_id: int) -> bool:
     return row is not None
 
 
+async def _lookup_catalog_service_row(service_id: str) -> dict[str, Any] | None:
+    """Live Catalog retail/limits for svc_* (or soldium_service_id). Never uses smm_services."""
+    sid = str(service_id or "").strip()
+    if not sid:
+        return None
+    async with get_db() as db:
+        try:
+            async with db.execute(
+                """
+                SELECT s.id, s.name_ar, s.min_quantity, s.max_quantity,
+                       s.fulfillment_mode, p.amount_millimes, p.pricing_mode,
+                       e.provider_slug, e.provider_account_key, e.external_service_id
+                FROM soldium_catalog_services s
+                LEFT JOIN soldium_catalog_prices p
+                  ON p.service_id = s.id AND p.status = 'active'
+                LEFT JOIN soldium_catalog_execution_sources e
+                  ON e.service_id = s.id AND e.status = 'active'
+                WHERE s.id = ?
+                LIMIT 1
+                """,
+                (sid,),
+            ) as cursor:
+                row = await cursor.fetchone()
+        except sqlite3.OperationalError:
+            return None
+    if row is None:
+        return None
+    return dict(row)
+
+
 async def _lookup_service_limits(service_id: str) -> tuple[int, int] | None:
     item_id = str(service_id or "").strip()
     if not item_id:
         return None
+    # Catalog SoT first (svc_* and any soldium id)
+    cat = await _lookup_catalog_service_row(item_id)
+    if cat is not None:
+        return int(cat.get("min_quantity") or 1), int(cat.get("max_quantity") or 1_000_000)
     async with get_db() as db:
         try:
             async with db.execute(
@@ -327,6 +361,86 @@ async def _lookup_service_limits(service_id: str) -> tuple[int, int] | None:
     if row is None:
         return None
     return int(row["min_qty"] or 1), int(row["max_qty"] or 1_000_000)
+
+
+def _order_total_price_dh(
+    *,
+    local_price_dh: float,
+    quantity: int,
+    price_per_unit: bool,
+) -> float:
+    price = Decimal(str(local_price_dh))
+    qty = Decimal(str(max(int(quantity), 1)))
+    if price_per_unit:
+        return float(price * qty)
+    return float(price * qty / Decimal(1000))
+
+
+async def _compute_order_pricing(service_id: str, quantity: int) -> tuple[float, float]:
+    """Return (amount_dh, provider_cost_dh). Catalog-first; Legacy fallback for historical ids."""
+    sid = str(service_id or "").strip()
+    cat = await _lookup_catalog_service_row(sid)
+    if cat is not None:
+        millimes = int(cat.get("amount_millimes") or 0)
+        if millimes <= 0:
+            raise ScheduledOrderValidationError("سعر الخدمة غير مضبوط في الكتالوج.")
+        unit_dh = millimes / 1000.0
+        price_per_unit = str(cat.get("pricing_mode") or "") == "per_unit"
+        amount = _order_total_price_dh(
+            local_price_dh=unit_dh,
+            quantity=quantity,
+            price_per_unit=price_per_unit,
+        )
+        # Provider cost from Catalog provider snapshot when available
+        rate = 0.0
+        try:
+            from catalog_core.storefront_gateway import lookup_provider_rate_usd
+            from database_connector import DB_PATH
+            import sqlite3 as _sq
+
+            conn = _sq.connect(str(DB_PATH), timeout=30.0)
+            conn.row_factory = _sq.Row
+            try:
+                rate = lookup_provider_rate_usd(
+                    conn,
+                    provider_slug=str(cat.get("provider_slug") or ""),
+                    provider_account_key=str(cat.get("provider_account_key") or ""),
+                    external_service_id=str(cat.get("external_service_id") or ""),
+                )
+            finally:
+                conn.close()
+        except Exception:
+            rate = 0.0
+        cost = compute_provider_cost_dh(
+            int(quantity),
+            provider_price_usd=float(rate),
+            local_price_dh=unit_dh,
+            price_per_unit=price_per_unit,
+        )
+        return amount, cost
+
+    # Historical Legacy path (non-svc ids)
+    svc = await get_service(service_id)
+    if svc is None:
+        raise ScheduledOrderValidationError("الخدمة غير موجودة في الكتالوج.")
+
+    local_price = float(svc.get("local_price_dh") or 0)
+    if local_price <= 0:
+        raise ScheduledOrderValidationError("سعر الخدمة غير مضبوط في الكتالوج.")
+
+    price_per_unit = bool(svc.get("price_per_unit"))
+    amount = _order_total_price_dh(
+        local_price_dh=local_price,
+        quantity=quantity,
+        price_per_unit=price_per_unit,
+    )
+    cost = compute_provider_cost_dh(
+        int(quantity),
+        provider_price_usd=float(svc.get("provider_price_usd") or 0),
+        local_price_dh=local_price,
+        price_per_unit=price_per_unit,
+    )
+    return amount, cost
 
 
 def _validate_quantity_settings(
@@ -375,44 +489,6 @@ def _resolve_quantity(job: dict[str, Any]) -> int:
         qmax = int(job["quantity_max"])
         return random.randint(qmin, qmax)
     return int(job["quantity_fixed"])
-
-
-def _order_total_price_dh(
-    *,
-    local_price_dh: float,
-    quantity: int,
-    price_per_unit: bool,
-) -> float:
-    price = Decimal(str(local_price_dh))
-    qty = Decimal(str(max(int(quantity), 1)))
-    if price_per_unit:
-        return float(price * qty)
-    return float(price * qty / Decimal(1000))
-
-
-async def _compute_order_pricing(service_id: str, quantity: int) -> tuple[float, float]:
-    """Return (amount_dh, provider_cost_dh)."""
-    svc = await get_service(service_id)
-    if svc is None:
-        raise ScheduledOrderValidationError("الخدمة غير موجودة في الكتالوج.")
-
-    local_price = float(svc.get("local_price_dh") or 0)
-    if local_price <= 0:
-        raise ScheduledOrderValidationError("سعر الخدمة غير مضبوط في الكتالوج.")
-
-    price_per_unit = bool(svc.get("price_per_unit"))
-    amount = _order_total_price_dh(
-        local_price_dh=local_price,
-        quantity=quantity,
-        price_per_unit=price_per_unit,
-    )
-    cost = compute_provider_cost_dh(
-        int(quantity),
-        provider_price_usd=float(svc.get("provider_price_usd") or 0),
-        local_price_dh=local_price,
-        price_per_unit=price_per_unit,
-    )
-    return amount, cost
 
 
 async def _resolve_external_service_id_at_create(
@@ -524,6 +600,7 @@ async def _create_order_with_balance_hold(
     provider_cost_dh: float,
     catalog_id: str | None = None,
     external_service_id_snapshot: str | None = None,
+    soldium_service_id: str | None = None,
 ) -> int:
     amount_money = round(to_float(amount), 6)
     account = str(api_account or "default").strip() or "default"
@@ -534,6 +611,7 @@ async def _create_order_with_balance_hold(
         mode = "auto"
     legacy_catalog_id = str(catalog_id or "").strip() or None
     external_snap = str(external_service_id_snapshot or "").strip() or None
+    soldium_id = str(soldium_service_id or "").strip() or None
     stored_link = str(link or "")
     normalized = normalize_order_link(stored_link)
     normalized_for_db = normalized or None
@@ -575,34 +653,72 @@ async def _create_order_with_balance_hold(
             if balance_cursor.rowcount == 0:
                 raise ScheduledOrderValidationError("تعذّر خصم الرصيد — رصيد غير كافٍ.")
 
+            has_soldium = False
             try:
-                order_cursor = await db.execute(
-                    """
-                    INSERT INTO orders (
-                        user_id, service_name, service_id, link, quantity, amount, total_price, status,
-                        api_account, provider_slug, fulfillment_mode, provider_cost_dh,
-                        catalog_id, external_service_id_snapshot, normalized_link
+                async with db.execute("PRAGMA table_info(orders)") as cur:
+                    cols = {str(r[1]) for r in await cur.fetchall()}
+                has_soldium = "soldium_service_id" in cols
+            except Exception:
+                has_soldium = False
+
+            try:
+                if has_soldium:
+                    order_cursor = await db.execute(
+                        """
+                        INSERT INTO orders (
+                            user_id, service_name, service_id, link, quantity, amount, total_price, status,
+                            api_account, provider_slug, fulfillment_mode, provider_cost_dh,
+                            catalog_id, external_service_id_snapshot, soldium_service_id, normalized_link
+                        )
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            user_id,
+                            service_name,
+                            service_id,
+                            stored_link,
+                            int(quantity),
+                            amount_money,
+                            amount_money,
+                            status,
+                            account,
+                            slug,
+                            mode,
+                            round(to_float(provider_cost_dh), 6),
+                            legacy_catalog_id,
+                            external_snap,
+                            soldium_id,
+                            normalized_for_db,
+                        ),
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        user_id,
-                        service_name,
-                        service_id,
-                        stored_link,
-                        int(quantity),
-                        amount_money,
-                        amount_money,
-                        status,
-                        account,
-                        slug,
-                        mode,
-                        round(to_float(provider_cost_dh), 6),
-                        legacy_catalog_id,
-                        external_snap,
-                        normalized_for_db,
-                    ),
-                )
+                else:
+                    order_cursor = await db.execute(
+                        """
+                        INSERT INTO orders (
+                            user_id, service_name, service_id, link, quantity, amount, total_price, status,
+                            api_account, provider_slug, fulfillment_mode, provider_cost_dh,
+                            catalog_id, external_service_id_snapshot, normalized_link
+                        )
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            user_id,
+                            service_name,
+                            service_id,
+                            stored_link,
+                            int(quantity),
+                            amount_money,
+                            amount_money,
+                            status,
+                            account,
+                            slug,
+                            mode,
+                            round(to_float(provider_cost_dh), 6),
+                            legacy_catalog_id,
+                            external_snap,
+                            normalized_for_db,
+                        ),
+                    )
             except sqlite3.IntegrityError as exc:
                 if normalized_for_db and is_active_link_unique_violation(exc):
                     raise ActiveLinkOccupiedError(
@@ -652,8 +768,19 @@ async def _submit_job_order(job: dict[str, Any], quantity: int) -> int:
 
     svc = await get_service(service_id)
     legacy_catalog_id = None
-    if svc is not None:
+    soldium_id = None
+    if str(service_id).startswith("svc_"):
+        soldium_id = str(service_id)
+        legacy_catalog_id = soldium_id
+    elif svc is not None:
         legacy_catalog_id = str(svc.get("catalog_id") or "").strip() or None
+        if str(svc.get("soldium_service_id") or "").startswith("svc_"):
+            soldium_id = str(svc.get("soldium_service_id"))
+    else:
+        cat = await _lookup_catalog_service_row(service_id)
+        if cat is not None:
+            soldium_id = str(cat.get("id") or "")
+            legacy_catalog_id = soldium_id or None
 
     if not is_gen1_scheduled_job(job):
         # Phase 9O: Gen-0 must never resolve Provider SKU from live smm_services.
@@ -694,6 +821,7 @@ async def _submit_job_order(job: dict[str, Any], quantity: int) -> int:
         provider_cost_dh=provider_cost,
         catalog_id=legacy_catalog_id,
         external_service_id_snapshot=external_text,
+        soldium_service_id=soldium_id,
     )
 
     provider_ref = await submit_provider_order(

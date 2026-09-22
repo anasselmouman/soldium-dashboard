@@ -169,7 +169,8 @@ def test_unpublished_archived_readiness_excluded(catalog_db: Path):
         assert ids == set()
 
 
-def test_execution_identity_from_publication_not_live(catalog_db: Path):
+def test_execution_identity_from_live_catalog(catalog_db: Path):
+    """After publish, live execution-source changes apply without republish."""
     with catalog_transaction(catalog_db) as conn:
         core = CatalogCoreService(conn)
         pub = CatalogPublicationService(conn)
@@ -183,20 +184,21 @@ def test_execution_identity_from_publication_not_live(catalog_db: Path):
         )
         adapter = StorefrontAdapter(conn)
         got = adapter.get_service(svc.id)
-        assert got.execution.provider_slug == "gozibra"
-        assert got.execution.provider_account_key == "default"
-        assert got.execution.external_service_id == "123"
+        assert got.execution.provider_slug == "other"
+        assert got.execution.provider_account_key == "main"
+        assert got.execution.external_service_id == "456"
         intent = adapter.resolve_order_intent(
             svc.id, 100, target="https://instagram.com/x"
         )
-        assert intent.provider_slug == "gozibra"
-        assert intent.provider_account_key == "default"
-        assert intent.external_service_id == "123"
+        assert intent.provider_slug == "other"
+        assert intent.provider_account_key == "main"
+        assert intent.external_service_id == "456"
         assert intent.target == "https://instagram.com/x"
         assert intent.fulfillment_mode == "auto"
 
 
-def test_price_and_placement_from_publication(catalog_db: Path):
+def test_price_and_placement_from_live_catalog(catalog_db: Path):
+    """Live name/price/placement edits are customer-visible without republish."""
     with catalog_transaction(catalog_db) as conn:
         core = CatalogCoreService(conn)
         pub = CatalogPublicationService(conn)
@@ -209,10 +211,11 @@ def test_price_and_placement_from_publication(catalog_db: Path):
         other = core.create_node(name_ar="منصة أخرى", parent_entry_id=None)
         core.move_service(svc.id, new_parent_entry_id=other.entry_id)
         got = StorefrontAdapter(conn).get_service(svc.id)
-        assert got.name_ar == "الاسم"
-        assert got.price.amount_millimes == 3000
-        assert got.platform_label == "تيك"
-        assert got.section_label == "لايك"
+        assert got.name_ar == "مسودة"
+        assert got.price.amount_millimes == 9000
+        assert got.platform_label == "منصة أخرى"
+        assert got.section_label in (None, "")
+        assert got.subsection_label in (None, "")
 
 
 def test_quantity_validation(catalog_db: Path):

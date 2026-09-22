@@ -320,6 +320,27 @@ async def archive_service(service_id: str):
         raise _http_error(exc) from exc
 
 
+@router.get("/services/{service_id}/delete-preview")
+async def delete_service_preview(service_id: str):
+    try:
+        with catalog_transaction() as conn:
+            impact = CatalogCoreService(conn).preview_service_delete(service_id)
+        return {"ok": True, "preview": impact}
+    except CatalogError as exc:
+        raise _http_error(exc) from exc
+
+
+@router.post("/services/{service_id}/delete")
+async def delete_service(service_id: str):
+    """Admin delete — archive-based soft delete (never physical row removal)."""
+    try:
+        with catalog_transaction() as conn:
+            result = CatalogCoreService(conn).delete_service(service_id)
+        return {"ok": True, **result.to_dict()}
+    except CatalogError as exc:
+        raise _http_error(exc) from exc
+
+
 @router.post("/services/{service_id}/restore")
 async def restore_service(service_id: str, body: RestoreBody | None = None):
     status = body.status if body else "draft"

@@ -97,10 +97,15 @@ def _ready_and_publish(conn: sqlite3.Connection, *, external_id: str = "1154"):
 # --- A B C D Q: selection ---
 
 
-def test_a_q_default_and_missing_select_legacy():
-    assert resolve_storefront_backend_name(None, environ={}) == "legacy"
-    assert resolve_storefront_backend_name("", environ={}) == "legacy"
-    assert resolve_storefront_backend_name(None, environ={"STOREFRONT_BACKEND": ""}) == "legacy"
+def test_a_q_default_and_missing_select_catalog():
+    assert resolve_storefront_backend_name(None, environ={}) == "catalog"
+    assert resolve_storefront_backend_name("", environ={}) == "catalog"
+    assert resolve_storefront_backend_name(None, environ={"STOREFRONT_BACKEND": ""}) == "catalog"
+
+
+def test_a_q_explicit_legacy_and_catalog():
+    assert resolve_storefront_backend_name("legacy") == "legacy"
+    assert resolve_storefront_backend_name("LEGACY") == "legacy"
 
 
 def test_b_explicit_legacy():
@@ -117,10 +122,10 @@ def test_c_catalog_in_isolated_config(catalog_db: Path):
         assert len(sf.list_services()) >= 1
 
 
-def test_d_invalid_cannot_select_catalog():
-    for bad in ("prod", "telegram", "catalogue", "1", "true", "legacy "):
-        # trailing space stripped → legacy for "legacy "; others → legacy
-        assert resolve_storefront_backend_name(bad) == "legacy"
+def test_d_invalid_selects_catalog_except_explicit_legacy():
+    for bad in ("prod", "telegram", "catalogue", "1", "true"):
+        assert resolve_storefront_backend_name(bad) == "catalog"
+    assert resolve_storefront_backend_name("legacy ") == "legacy"
     assert resolve_storefront_backend_name("catalog") == "catalog"
 
 
