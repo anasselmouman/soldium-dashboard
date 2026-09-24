@@ -383,6 +383,51 @@ async def get_execution_source_history(service_id: str):
 @router.post("/services/{service_id}/execution-source")
 async def change_execution_source(request: Request, service_id: str, body: ChangeSourceBody):
     actor = getattr(request.state, "admin_username", None)
+    # #region agent log
+    import json as _json
+    import time as _time
+    import traceback as _tb
+    from pathlib import Path as _Path
+
+    def _dbg(hypothesis_id: str, message: str, data: dict) -> None:
+        try:
+            payload = {
+                "sessionId": "3df71b",
+                "runId": "pre-fix",
+                "hypothesisId": hypothesis_id,
+                "location": "api_catalog_core.py:change_execution_source",
+                "message": message,
+                "data": data,
+                "timestamp": int(_time.time() * 1000),
+            }
+            line = _json.dumps(payload, ensure_ascii=False, default=str)
+            for p in (
+                _Path("/tmp/debug-3df71b.log"),
+                _Path("/opt/soldium/debug-3df71b.log"),
+            ):
+                try:
+                    with p.open("a", encoding="utf-8") as fh:
+                        fh.write(line + "\n")
+                except Exception:
+                    pass
+            import logging as _logging
+
+            _logging.getLogger("soldium.debug").warning("DBG %s %s %s", hypothesis_id, message, data)
+        except Exception:
+            pass
+
+    _dbg(
+        "D",
+        "endpoint enter",
+        {
+            "service_id": service_id,
+            "provider_slug": body.provider_slug,
+            "provider_account_key": body.provider_account_key,
+            "external_service_id": body.external_service_id,
+            "actor": str(actor) if actor else None,
+        },
+    )
+    # #endregion
     try:
         with catalog_transaction() as conn:
             svc = CatalogCoreService(conn)
@@ -393,12 +438,39 @@ async def change_execution_source(request: Request, service_id: str, body: Chang
                 external_service_id=body.external_service_id,
                 changed_by=str(actor) if actor else None,
             )
+            # #region agent log
+            _dbg(
+                "A",
+                "change_execution_source ok",
+                {
+                    "service_id": service_id,
+                    "unchanged": result.unchanged,
+                    "external": getattr(result.current, "external_service_id", None),
+                    "wt": (result.legacy_write_through or {}).get("outcome")
+                    if isinstance(result.legacy_write_through, dict)
+                    else None,
+                },
+            )
+            # #endregion
             readiness = svc.get_service_readiness(service_id).to_dict()
             from catalog_core.publication import CatalogPublicationService
 
             publication = CatalogPublicationService(conn).get_publication_status(
                 service_id
             )
+            # #region agent log
+            _dbg(
+                "A",
+                "readiness_publication ok",
+                {
+                    "service_id": service_id,
+                    "ready_state": readiness.get("state"),
+                    "pub": publication.get("publication_status")
+                    if isinstance(publication, dict)
+                    else None,
+                },
+            )
+            # #endregion
         return {
             "ok": True,
             **result.to_dict(),
@@ -406,7 +478,32 @@ async def change_execution_source(request: Request, service_id: str, body: Chang
             "publication": publication,
         }
     except CatalogError as exc:
+        # #region agent log
+        _dbg(
+            "D",
+            "CatalogError",
+            {
+                "service_id": service_id,
+                "exc_type": type(exc).__name__,
+                "message": getattr(exc, "message", str(exc)),
+            },
+        )
+        # #endregion
         raise _http_error(exc) from exc
+    except Exception as exc:
+        # #region agent log
+        _dbg(
+            "A",
+            "unhandled exception",
+            {
+                "service_id": service_id,
+                "exc_type": type(exc).__name__,
+                "exc_msg": str(exc),
+                "traceback": _tb.format_exc(),
+            },
+        )
+        # #endregion
+        raise
 
 
 @router.get("/services/{service_id}/price")
