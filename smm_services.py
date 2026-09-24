@@ -387,12 +387,71 @@ def _case_insensitive_get(entry: dict[str, Any], *keys: str) -> Any:
     return None
 
 
+async def _apply_provider_sku_fields(
+    db: Any,
+    *,
+    catalog_ids: list[str],
+    rate: float | None,
+    min_qty: int,
+    max_qty: int,
+    api_account: str,
+    provider_slug: str,
+    external_id: str,
+    entry_keys: list[str],
+) -> None:
+    """Write provider-SKU fields to every matching Soldium/legacy row by catalog_id.
+
+    Rate/min/max/api_account are provider-SKU-level values. When multiple
+    smm_services rows share (provider_slug, external_service_id), all receive
+    the same provider fields. Identity is always catalog_id — never an
+    arbitrary fetchone() among duplicates.
+    """
+    for catalog_id in catalog_ids:
+        if rate is not None:
+            await db.execute(
+                """
+                UPDATE smm_services
+                SET provider_price_usd = ?,
+                    min_qty = ?,
+                    max_qty = ?,
+                    provider_api_account = ?,
+                    provider_price_updated_at = datetime('now')
+                WHERE catalog_id = ?
+                """,
+                (float(rate), min_qty, max_qty, api_account, catalog_id),
+            )
+        else:
+            await db.execute(
+                """
+                UPDATE smm_services
+                SET min_qty = ?, max_qty = ?, provider_api_account = ?
+                WHERE catalog_id = ?
+                """,
+                (min_qty, max_qty, api_account, catalog_id),
+            )
+    if rate is None:
+        logger.warning(
+            "Provider service %s/%s missing rate: keys=%s (touched %s catalog_id(s))",
+            provider_slug,
+            external_id,
+            entry_keys[:12],
+            len(catalog_ids),
+        )
+
+
 async def sync_from_provider(provider_services: list[dict[str, Any]]) -> dict[str, int]:
-    """Merge provider API list into smm_services (multi-provider aware)."""
+    """Merge provider API list into smm_services (multi-provider aware).
+
+    Matching is by provider SKU (provider_slug + external_service_id). Provider
+    fields are SKU-level: every existing row for that SKU is updated by its
+    catalog_id. A new inactive inventory stub is inserted only when zero rows
+    match. Does not depend on UNIQUE(provider_slug, external_service_id).
+    """
     updated = 0
     inserted = 0
     rates_applied = 0
     skipped_no_id = 0
+    rows_touched = 0
 
     async with db_transaction() as db:
         for entry in provider_services:
@@ -415,46 +474,32 @@ async def sync_from_provider(provider_services: list[dict[str, Any]]) -> dict[st
             if rate is not None and rate > 0:
                 rates_applied += 1
 
+            # Deterministic order — never rely on SQLite row ordering / fetchone().
             cursor = await db.execute(
                 """
                 SELECT catalog_id FROM smm_services
                 WHERE provider_slug = ? AND external_service_id = ?
+                ORDER BY catalog_id ASC
                 """,
                 (provider_slug, external_id),
             )
-            exists = await cursor.fetchone()
+            matches = await cursor.fetchall()
+            catalog_ids = [str(row["catalog_id"]) for row in matches]
 
-            if exists:
-                catalog_id = str(exists["catalog_id"])
-                if rate is not None:
-                    await db.execute(
-                        """
-                        UPDATE smm_services
-                        SET provider_price_usd = ?,
-                            min_qty = ?,
-                            max_qty = ?,
-                            provider_api_account = ?,
-                            provider_price_updated_at = datetime('now')
-                        WHERE catalog_id = ?
-                        """,
-                        (float(rate), min_qty, max_qty, api_account, catalog_id),
-                    )
-                else:
-                    await db.execute(
-                        """
-                        UPDATE smm_services
-                        SET min_qty = ?, max_qty = ?, provider_api_account = ?
-                        WHERE catalog_id = ?
-                        """,
-                        (min_qty, max_qty, api_account, catalog_id),
-                    )
-                    logger.warning(
-                        "Provider service %s/%s missing rate: keys=%s",
-                        provider_slug,
-                        external_id,
-                        list(entry.keys())[:12],
-                    )
+            if catalog_ids:
+                await _apply_provider_sku_fields(
+                    db,
+                    catalog_ids=catalog_ids,
+                    rate=rate,
+                    min_qty=min_qty,
+                    max_qty=max_qty,
+                    api_account=api_account,
+                    provider_slug=provider_slug,
+                    external_id=external_id,
+                    entry_keys=list(entry.keys()),
+                )
                 updated += 1
+                rows_touched += len(catalog_ids)
             else:
                 name = str(
                     _case_insensitive_get(entry, "name", "title")
@@ -494,17 +539,19 @@ async def sync_from_provider(provider_services: list[dict[str, Any]]) -> dict[st
         await db.commit()
 
     logger.info(
-        "Provider sync: updated=%s inserted=%s rates_applied=%s skipped_no_id=%s",
+        "Provider sync: updated=%s inserted=%s rates_applied=%s skipped_no_id=%s rows_touched=%s",
         updated,
         inserted,
         rates_applied,
         skipped_no_id,
+        rows_touched,
     )
     return {
         "updated": updated,
         "inserted": inserted,
         "rates_applied": rates_applied,
         "skipped_no_id": skipped_no_id,
+        "rows_touched": rows_touched,
         "total_provider": len(provider_services),
     }
 

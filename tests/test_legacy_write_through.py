@@ -120,10 +120,9 @@ def wt_db(tmp_path: Path) -> Path:
                 provider_api_account TEXT NOT NULL DEFAULT 'default',
                 provider_price_usd REAL NOT NULL DEFAULT 0,
                 fulfillment_mode TEXT NOT NULL DEFAULT 'auto',
-                is_active INTEGER NOT NULL DEFAULT 1,
-                UNIQUE(provider_slug, external_service_id)
+                is_active INTEGER NOT NULL DEFAULT 1
             );
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_smm_services_provider_external
+            CREATE INDEX IF NOT EXISTS idx_smm_services_provider_external
             ON smm_services (provider_slug, external_service_id);
             CREATE TABLE orders (id INTEGER PRIMARY KEY, service_id TEXT NOT NULL);
             INSERT INTO orders(id, service_id) VALUES (1, 'legacy-1');
@@ -378,8 +377,8 @@ def test_bridged_different_free_external_id_succeeds(wt_db: Path):
         assert any(e["new_external_service_id"] == "8888" for e in events)
 
 
-def test_bridged_external_id_collision_rolls_back(wt_db: Path):
-    """Bridged → taken (provider, external_id) → CatalogConflictError + full rollback."""
+def test_bridged_shared_external_id_succeeds(wt_db: Path):
+    """Bridged → external already used by another smm row → SUCCESS (shared SKU)."""
     with catalog_transaction(wt_db) as conn:
         sid, lid = _seed_bridged_world(conn)
         conn.execute(
@@ -399,63 +398,28 @@ def test_bridged_external_id_collision_rolls_back(wt_db: Path):
             )
             """
         )
-        events_before = len(CatalogCoreService(conn).list_execution_source_events(sid))
+        other_before = dict(_legacy(conn, "other-leg"))
 
-    with pytest.raises(CatalogConflictError, match="معرّف الخدمة لدى المورد") as raised:
-        with catalog_transaction(wt_db) as conn:
-            CatalogCoreService(conn).change_execution_source(
-                sid,
-                provider_slug="gozibra",
-                provider_account_key="instagram",
-                external_service_id="9999",
-            )
+        result = CatalogCoreService(conn).change_execution_source(
+            sid,
+            provider_slug="gozibra",
+            provider_account_key="instagram",
+            external_service_id="9999",
+        )
+        assert result.unchanged is False
+        assert result.current is not None
+        assert result.current.external_service_id == "9999"
+        assert result.legacy_write_through["applied"] is True
 
-    assert raised.value.message == LEGACY_PROVIDER_EXTERNAL_UNIQUE_MESSAGE
-
-    conn = sqlite3.connect(wt_db)
-    conn.row_factory = sqlite3.Row
-    try:
-        active = conn.execute(
-            """
-            SELECT external_service_id, status
-            FROM soldium_catalog_execution_sources
-            WHERE service_id = ? AND status = 'active'
-            """,
-            (sid,),
-        ).fetchall()
-        assert len(active) == 1
-        assert str(active[0]["external_service_id"]) == "1154"
-        hist_n = conn.execute(
-            """
-            SELECT COUNT(*) AS c FROM soldium_catalog_execution_sources
-            WHERE service_id = ? AND status = 'historical'
-            """,
-            (sid,),
-        ).fetchone()["c"]
-        assert int(hist_n) == 0
-        row = conn.execute(
-            "SELECT external_service_id, provider_slug FROM smm_services WHERE catalog_id = ?",
-            (lid,),
-        ).fetchone()
-        assert str(row["external_service_id"]) == "1154"
-        assert str(row["provider_slug"]) == "gozibra"
-        other = conn.execute(
-            "SELECT external_service_id FROM smm_services WHERE catalog_id = 'other-leg'"
-        ).fetchone()
-        assert str(other["external_service_id"]) == "9999"
-        events_after = conn.execute(
-            "SELECT COUNT(*) AS c FROM soldium_catalog_execution_source_events WHERE service_id = ?",
-            (sid,),
-        ).fetchone()["c"]
-        assert int(events_after) == events_before
-    finally:
-        conn.close()
-
-    from routers.api_catalog_core import _http_error
-
-    http = _http_error(CatalogConflictError(LEGACY_PROVIDER_EXTERNAL_UNIQUE_MESSAGE))
-    assert http.status_code == 409
-    assert http.detail == LEGACY_PROVIDER_EXTERNAL_UNIQUE_MESSAGE
+        row_a = _legacy(conn, lid)
+        assert str(row_a["external_service_id"]) == "9999"
+        assert str(row_a["provider_slug"]) == "gozibra"
+        row_b = _legacy(conn, "other-leg")
+        assert str(row_b["external_service_id"]) == "9999"
+        # Twin B must not be mutated by A's write-through.
+        assert row_b["name_ar"] == other_before["name_ar"]
+        assert float(row_b["local_price_dh"]) == float(other_before["local_price_dh"])
+        assert str(row_b["provider_api_account"]) == other_before["provider_api_account"]
 
 
 def test_catalog_only_different_external_skips_write_through(wt_db: Path):

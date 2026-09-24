@@ -22,7 +22,8 @@ logger = logging.getLogger("soldium.catalog.legacy_write_through")
 
 SMM_TABLE = "smm_services"
 
-# Arabic message for UNIQUE(provider_slug, external_service_id) on smm_services.
+# Arabic message retained for residual mid-migration IntegrityErrors only.
+# Production schema no longer enforces UNIQUE(provider_slug, external_service_id).
 LEGACY_PROVIDER_EXTERNAL_UNIQUE_MESSAGE = (
     "معرّف الخدمة لدى المورد مستخدم بالفعل مع خدمة أخرى."
 )
