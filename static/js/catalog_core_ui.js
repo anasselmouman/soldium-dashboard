@@ -178,20 +178,55 @@
     });
   }
 
+  function httpErrorMessage(data, res, rawText) {
+    const detail = data && data.detail;
+    if (typeof detail === "string" && detail.trim()) return detail.trim();
+    if (detail && typeof detail === "object") {
+      if (typeof detail.message === "string" && detail.message.trim()) {
+        return detail.message.trim();
+      }
+      if (Array.isArray(detail) && detail.length) {
+        const parts = detail
+          .map((d) => (d && (d.msg || d.message)) || "")
+          .filter(Boolean);
+        if (parts.length) return parts.join(" · ");
+      }
+    }
+    if (data && typeof data.message === "string" && data.message.trim()) {
+      return data.message.trim();
+    }
+    const text = (rawText || "").trim();
+    // Avoid surfacing bare Starlette/nginx "Internal Server Error" when we have status.
+    if (text && !/^internal server error$/i.test(text) && text.length < 400) {
+      return text;
+    }
+    if (res && res.status === 409) return "تعارض في البيانات — تعذر إكمال العملية";
+    if (res && res.status >= 500) {
+      return "فشل الخادم أثناء العملية — أعد المحاولة أو راجع السجلات";
+    }
+    if (res && res.statusText && !/^internal server error$/i.test(res.statusText)) {
+      return res.statusText;
+    }
+    return "فشل الطلب";
+  }
+
   async function json(url, options = {}) {
     const res = await fetch(url, {
       credentials: "same-origin",
       headers: { "Content-Type": "application/json", ...(options.headers || {}) },
       ...options,
     });
-    const data = await res.json().catch(() => ({}));
+    const rawText = await res.text();
+    let data = {};
+    if (rawText) {
+      try {
+        data = JSON.parse(rawText);
+      } catch (_) {
+        data = {};
+      }
+    }
     if (!res.ok) {
-      const detail = data.detail;
-      const msg =
-        typeof detail === "string"
-          ? detail
-          : (detail && detail.message) || data.message || res.statusText;
-      throw new Error(msg || "فشل الطلب");
+      throw new Error(httpErrorMessage(data, res, rawText));
     }
     return data;
   }
@@ -1465,7 +1500,13 @@
       wireCopyProviderIds(root);
 
       const refreshAfter = async () => {
-        await load();
+        // List refresh is best-effort (active search/filters may hide the row).
+        // Details must always reopen for the known service id.
+        try {
+          await load();
+        } catch (_) {
+          /* ignore list refresh errors */
+        }
         await openDetails(serviceId);
       };
 
@@ -1767,8 +1808,20 @@
                 }
               );
               alertBox(result.message || "تم حفظ السعر");
-              if (typeof afterSave === "function") await afterSave();
-              else await load();
+              // Close confirm before afterSave so openModal's success closeModal
+              // cannot wipe the details modal opened by refreshAfter.
+              closeModal();
+              try {
+                if (typeof afterSave === "function") await afterSave();
+                else await load();
+              } catch (refreshErr) {
+                alertBox(
+                  "تم حفظ السعر، لكن تعذر تحديث الشاشة: " +
+                    ((refreshErr && refreshErr.message) || "خطأ غير معروف"),
+                  "err"
+                );
+              }
+              return false;
             },
           });
           return false;
@@ -1905,9 +1958,24 @@
                   }),
                 }
               );
-              alertBox(result.message || "تم استبدال مصدر التنفيذ");
-              if (typeof afterSave === "function") await afterSave();
-              else await load();
+              alertBox(result.message || "تم تغيير مصدر التنفيذ");
+              // Critical: close confirm BEFORE afterSave. Otherwise openModal's
+              // submit handler runs `closeModal()` after onSubmit returns and
+              // destroys the details modal that refreshAfter just opened —
+              // looking like "nothing changed" / a failed replace.
+              // Also: afterSave failures must NOT surface as replace ISE.
+              closeModal();
+              try {
+                if (typeof afterSave === "function") await afterSave();
+                else await load();
+              } catch (refreshErr) {
+                alertBox(
+                  "تم تغيير مصدر التنفيذ، لكن تعذر تحديث الشاشة: " +
+                    ((refreshErr && refreshErr.message) || "خطأ غير معروف"),
+                  "err"
+                );
+              }
+              return false;
             },
           });
           return false;

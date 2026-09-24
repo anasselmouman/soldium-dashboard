@@ -4,11 +4,25 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 
 WORKSPACE_ADMIN = "admin"
 WORKSPACE_CATALOG = "catalog"
+
+_CATALOG_UI_JS = (
+    Path(__file__).resolve().parent / "static" / "js" / "catalog_core_ui.js"
+)
+
+
+def catalog_ui_asset_version() -> str:
+    """Cache-bust token for catalog_core_ui.js (mtime-size)."""
+    try:
+        st = _CATALOG_UI_JS.stat()
+        return f"{int(st.st_mtime)}-{st.st_size}"
+    except OSError:
+        return "1"
 
 
 @dataclass(frozen=True)
@@ -89,6 +103,7 @@ def page_context(
         "page_title": page_title,
         "page_heading": page_heading,
         "page_subheading": page_subheading,
+        "catalog_ui_asset_v": catalog_ui_asset_version(),
     }
     if catalog_section is not None:
         ctx["catalog_section"] = catalog_section

@@ -322,6 +322,9 @@ def test_ui_modal_shows_error_inside_dialog_on_submit_failure():
     # Failure path must not dismiss the modal (closeModal only on success / result !== false).
     assert "if (result !== false) closeModal();" in js
     assert "تأكيد الاستبدال" in js
+    # Success path isolates afterSave so refresh errors are not replace ISE.
+    assert "تم تغيير مصدر التنفيذ، لكن تعذر تحديث الشاشة" in js
+    assert "httpErrorMessage" in js
 
 
 def test_artifact_if_present():
