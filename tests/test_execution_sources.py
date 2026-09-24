@@ -318,3 +318,5 @@ def test_ui_has_no_browser_dialogs():
     assert "تأكيد الاستبدال" in text or "تأكيد تغيير المصدر" in text
     assert "معرّف المزود" in text
     assert "استبدال مصدر التنفيذ" in text
+    assert 'id="cat-modal-error"' in text
+    assert "showModalError" in text

@@ -22,6 +22,11 @@ logger = logging.getLogger("soldium.catalog.legacy_write_through")
 
 SMM_TABLE = "smm_services"
 
+# Arabic message for UNIQUE(provider_slug, external_service_id) on smm_services.
+LEGACY_PROVIDER_EXTERNAL_UNIQUE_MESSAGE = (
+    "معرّف الخدمة لدى المورد مستخدم بالفعل مع خدمة أخرى."
+)
+
 # Catalog status → Legacy is_active (customer-facing visibility).
 # draft must never appear in Telegram (loader filters is_active=1).
 STATUS_TO_IS_ACTIVE: dict[str, int] = {
@@ -29,6 +34,21 @@ STATUS_TO_IS_ACTIVE: dict[str, int] = {
     "archived": 0,
     "draft": 0,
 }
+
+
+def is_legacy_provider_external_unique_violation(exc: BaseException) -> bool:
+    """True only for UNIQUE(provider_slug, external_service_id) on smm_services.
+
+    Matches table UNIQUE and the named unique index used in production.
+    Unrelated IntegrityError messages must return False.
+    """
+    text = str(exc).lower()
+    if "unique" not in text:
+        return False
+    if "idx_smm_services_provider_external" in text:
+        return True
+    return "provider_slug" in text and "external_service_id" in text
+
 
 WriteThroughOutcome = Literal[
     "applied",
@@ -232,10 +252,17 @@ def write_through_legacy_fields(
         )
 
     params.append(legacy_id)
-    cur = conn.execute(
-        f"UPDATE {SMM_TABLE} SET {', '.join(sets)} WHERE catalog_id = ?",
-        params,
-    )
+    try:
+        cur = conn.execute(
+            f"UPDATE {SMM_TABLE} SET {', '.join(sets)} WHERE catalog_id = ?",
+            params,
+        )
+    except sqlite3.IntegrityError as exc:
+        # Only map the expected provider+external unique conflict; re-raise others.
+        touching_routing = provider_slug is not None or external_service_id is not None
+        if touching_routing and is_legacy_provider_external_unique_violation(exc):
+            raise CatalogConflictError(LEGACY_PROVIDER_EXTERNAL_UNIQUE_MESSAGE) from exc
+        raise
     if int(cur.rowcount or 0) < 1:
         raise CatalogConflictError(
             "فشلت مزامنة smm_services (لم يُحدَّث أي صف) — "

@@ -224,6 +224,26 @@
     root.setAttribute("aria-hidden", "true");
   }
 
+  function showModalError(message) {
+    const root = document.getElementById("modal-root");
+    const errEl = root && root.querySelector("#cat-modal-error");
+    if (errEl) {
+      errEl.textContent = message || "فشل الطلب";
+      errEl.classList.remove("hidden");
+      errEl.scrollIntoView({ block: "nearest" });
+      return;
+    }
+    alertBox(message, "err");
+  }
+
+  function clearModalError() {
+    const root = document.getElementById("modal-root");
+    const errEl = root && root.querySelector("#cat-modal-error");
+    if (!errEl) return;
+    errEl.textContent = "";
+    errEl.classList.add("hidden");
+  }
+
   function openModal({ title, bodyHtml, onSubmit, submitLabel = "حفظ", hideFormActions = false }) {
     const root = document.getElementById("modal-root");
     if (!root) return;
@@ -242,7 +262,11 @@
           <h3 class="text-base font-semibold text-white">${esc(title)}</h3>
           <button type="button" class="text-slate-400 hover:text-white text-sm" data-close="1">إغلاق</button>
         </div>
-        <form id="cat-modal-form" class="space-y-3 text-sm">${bodyHtml}${actions}</form>
+        <form id="cat-modal-form" class="space-y-3 text-sm">
+          ${bodyHtml}
+          <div id="cat-modal-error" class="hidden rounded-lg border border-red-700 bg-red-950/40 text-red-200 px-3 py-2 text-sm" role="alert"></div>
+          ${actions}
+        </form>
       </div>`;
     root.querySelectorAll("[data-close]").forEach((el) => {
       el.addEventListener("click", closeModal);
@@ -250,11 +274,13 @@
     root.querySelector("#cat-modal-form").addEventListener("submit", async (e) => {
       e.preventDefault();
       if (!onSubmit) return;
+      clearModalError();
       try {
         const result = await onSubmit(new FormData(e.target));
         if (result !== false) closeModal();
       } catch (err) {
-        alertBox(err.message, "err");
+        // Keep modal open; show error inside the dialog (above backdrop/page alert).
+        showModalError(err.message || "فشل الطلب");
       }
     });
     return root;

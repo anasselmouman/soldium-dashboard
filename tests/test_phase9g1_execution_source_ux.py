@@ -312,6 +312,18 @@ def test_ui_surfaces_mention_provider_id():
     assert "confirm(" not in js
 
 
+def test_ui_modal_shows_error_inside_dialog_on_submit_failure():
+    """Non-2xx during confirm must surface inside #cat-modal-error; modal stays open."""
+    js = Path("static/js/catalog_core_ui.js").read_text(encoding="utf-8")
+    assert 'id="cat-modal-error"' in js
+    assert "showModalError" in js
+    assert "clearModalError" in js
+    assert "showModalError(err.message" in js
+    # Failure path must not dismiss the modal (closeModal only on success / result !== false).
+    assert "if (result !== false) closeModal();" in js
+    assert "تأكيد الاستبدال" in js
+
+
 def test_artifact_if_present():
     path = Path("scripts/out_phase9g1_execution_source_ux.json")
     if not path.exists():

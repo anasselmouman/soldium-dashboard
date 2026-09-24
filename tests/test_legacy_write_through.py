@@ -14,6 +14,8 @@ from catalog_core.errors import CatalogConflictError
 from catalog_core.legacy_migration import LEGACY_SERVICE_BRIDGE_TABLE
 from catalog_core.legacy_write_through import (
     STATUS_TO_IS_ACTIVE,
+    LEGACY_PROVIDER_EXTERNAL_UNIQUE_MESSAGE,
+    is_legacy_provider_external_unique_violation,
     millimes_to_local_price_dh,
 )
 from catalog_core.schema import ensure_soldium_catalog_schema
@@ -118,8 +120,11 @@ def wt_db(tmp_path: Path) -> Path:
                 provider_api_account TEXT NOT NULL DEFAULT 'default',
                 provider_price_usd REAL NOT NULL DEFAULT 0,
                 fulfillment_mode TEXT NOT NULL DEFAULT 'auto',
-                is_active INTEGER NOT NULL DEFAULT 1
+                is_active INTEGER NOT NULL DEFAULT 1,
+                UNIQUE(provider_slug, external_service_id)
             );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_smm_services_provider_external
+            ON smm_services (provider_slug, external_service_id);
             CREATE TABLE orders (id INTEGER PRIMARY KEY, service_id TEXT NOT NULL);
             INSERT INTO orders(id, service_id) VALUES (1, 'legacy-1');
             CREATE TABLE providers (
@@ -319,6 +324,195 @@ def test_J_gozibra_account_from_catalog_source_exact(wt_db: Path):
             assert row2["provider_api_account"] == account
             assert str(row2["external_service_id"]) == "4242"
             assert float(row2["local_price_dh"]) == 7.7
+
+
+def test_same_source_unchanged_no_write_through(wt_db: Path):
+    """Existing source → same provider/account/external_id: early return, no smm churn."""
+    with catalog_transaction(wt_db) as conn:
+        sid, lid = _seed_bridged_world(conn)
+        before = dict(_legacy(conn, lid))
+        again = CatalogCoreService(conn).change_execution_source(
+            sid,
+            provider_slug="gozibra",
+            provider_account_key="instagram",
+            external_service_id="1154",
+        )
+        assert again.unchanged is True
+        assert again.message == "المصدر المحدد مستخدم بالفعل"
+        assert again.legacy_write_through is None
+        hist = CatalogCoreService(conn).list_execution_source_history(sid)
+        assert len(hist) == 1
+        assert hist[0].status == "active"
+        assert hist[0].external_service_id == "1154"
+        after = dict(_legacy(conn, lid))
+        assert after["external_service_id"] == before["external_service_id"]
+        assert after["provider_slug"] == before["provider_slug"]
+        assert after["provider_api_account"] == before["provider_api_account"]
+
+
+def test_bridged_different_free_external_id_succeeds(wt_db: Path):
+    """Bridged → different free external_service_id updates Catalog + smm + event."""
+    with catalog_transaction(wt_db) as conn:
+        sid, lid = _seed_bridged_world(conn)
+        result = CatalogCoreService(conn).change_execution_source(
+            sid,
+            provider_slug="gozibra",
+            provider_account_key="instagram",
+            external_service_id="8888",
+            changed_by="tester",
+        )
+        assert result.unchanged is False
+        assert result.previous is not None
+        assert result.previous.external_service_id == "1154"
+        assert result.current is not None
+        assert result.current.status == "active"
+        assert result.current.external_service_id == "8888"
+        assert result.legacy_write_through["applied"] is True
+        hist = CatalogCoreService(conn).list_execution_source_history(sid)
+        assert sum(1 for h in hist if h.status == "active") == 1
+        assert any(
+            h.status == "historical" and h.external_service_id == "1154" for h in hist
+        )
+        assert str(_legacy(conn, lid)["external_service_id"]) == "8888"
+        events = CatalogCoreService(conn).list_execution_source_events(sid)
+        assert any(e["new_external_service_id"] == "8888" for e in events)
+
+
+def test_bridged_external_id_collision_rolls_back(wt_db: Path):
+    """Bridged → taken (provider, external_id) → CatalogConflictError + full rollback."""
+    with catalog_transaction(wt_db) as conn:
+        sid, lid = _seed_bridged_world(conn)
+        conn.execute(
+            """
+            INSERT INTO smm_services (
+                service_id, catalog_id, local_item_id, name_ar, local_price_dh,
+                min_qty, max_qty, category, platform_key, platform_title,
+                section_key, section_title, subsection_key, subsection_title,
+                external_service_id, provider_slug, provider_api_account,
+                provider_price_usd, fulfillment_mode, is_active
+            ) VALUES (
+                'other-leg', 'other-leg', 'other-leg', 'خدمة أخرى', 1.0,
+                1, 100, 'default', 'instagram', 'Instagram',
+                'likes', 'Likes', '', '',
+                '9999', 'gozibra', 'default',
+                0.1, 'auto', 1
+            )
+            """
+        )
+        events_before = len(CatalogCoreService(conn).list_execution_source_events(sid))
+
+    with pytest.raises(CatalogConflictError, match="معرّف الخدمة لدى المورد") as raised:
+        with catalog_transaction(wt_db) as conn:
+            CatalogCoreService(conn).change_execution_source(
+                sid,
+                provider_slug="gozibra",
+                provider_account_key="instagram",
+                external_service_id="9999",
+            )
+
+    assert raised.value.message == LEGACY_PROVIDER_EXTERNAL_UNIQUE_MESSAGE
+
+    conn = sqlite3.connect(wt_db)
+    conn.row_factory = sqlite3.Row
+    try:
+        active = conn.execute(
+            """
+            SELECT external_service_id, status
+            FROM soldium_catalog_execution_sources
+            WHERE service_id = ? AND status = 'active'
+            """,
+            (sid,),
+        ).fetchall()
+        assert len(active) == 1
+        assert str(active[0]["external_service_id"]) == "1154"
+        hist_n = conn.execute(
+            """
+            SELECT COUNT(*) AS c FROM soldium_catalog_execution_sources
+            WHERE service_id = ? AND status = 'historical'
+            """,
+            (sid,),
+        ).fetchone()["c"]
+        assert int(hist_n) == 0
+        row = conn.execute(
+            "SELECT external_service_id, provider_slug FROM smm_services WHERE catalog_id = ?",
+            (lid,),
+        ).fetchone()
+        assert str(row["external_service_id"]) == "1154"
+        assert str(row["provider_slug"]) == "gozibra"
+        other = conn.execute(
+            "SELECT external_service_id FROM smm_services WHERE catalog_id = 'other-leg'"
+        ).fetchone()
+        assert str(other["external_service_id"]) == "9999"
+        events_after = conn.execute(
+            "SELECT COUNT(*) AS c FROM soldium_catalog_execution_source_events WHERE service_id = ?",
+            (sid,),
+        ).fetchone()["c"]
+        assert int(events_after) == events_before
+    finally:
+        conn.close()
+
+    from routers.api_catalog_core import _http_error
+
+    http = _http_error(CatalogConflictError(LEGACY_PROVIDER_EXTERNAL_UNIQUE_MESSAGE))
+    assert http.status_code == 409
+    assert http.detail == LEGACY_PROVIDER_EXTERNAL_UNIQUE_MESSAGE
+
+
+def test_catalog_only_different_external_skips_write_through(wt_db: Path):
+    """Catalog-only service → different ID succeeds; write-through skipped."""
+    with catalog_transaction(wt_db) as conn:
+        ensure_soldium_catalog_schema(conn)
+        for account in ("default", "instagram"):
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO provider_accounts(provider_slug, account_key)
+                VALUES ('gozibra', ?)
+                """,
+                (account,),
+            )
+        svc = CatalogCoreService(conn)
+        created = svc.create_service(name_ar="كتالوج فقط", status="active")
+        first = svc.change_execution_source(
+            created.id,
+            provider_slug="gozibra",
+            provider_account_key="default",
+            external_service_id="1001",
+        )
+        assert first.legacy_write_through["outcome"] == "skipped_no_bridge"
+        second = svc.change_execution_source(
+            created.id,
+            provider_slug="gozibra",
+            provider_account_key="default",
+            external_service_id="1002",
+        )
+        assert second.unchanged is False
+        assert second.current.external_service_id == "1002"
+        assert second.legacy_write_through["outcome"] == "skipped_no_bridge"
+        assert conn.execute("SELECT COUNT(*) FROM smm_services").fetchone()[0] == 0
+
+
+def test_provider_external_unique_detector_specificity():
+    """Only the provider+external UNIQUE conflict maps to the Arabic conflict message."""
+    assert is_legacy_provider_external_unique_violation(
+        sqlite3.IntegrityError(
+            "UNIQUE constraint failed: smm_services.provider_slug, "
+            "smm_services.external_service_id"
+        )
+    )
+    assert is_legacy_provider_external_unique_violation(
+        sqlite3.IntegrityError(
+            "UNIQUE constraint failed: index 'idx_smm_services_provider_external'"
+        )
+    )
+    assert not is_legacy_provider_external_unique_violation(
+        sqlite3.IntegrityError("UNIQUE constraint failed: smm_services.catalog_id")
+    )
+    assert not is_legacy_provider_external_unique_violation(
+        sqlite3.IntegrityError("CHECK constraint failed: status")
+    )
+    assert not is_legacy_provider_external_unique_violation(
+        sqlite3.IntegrityError("FOREIGN KEY constraint failed")
+    )
 
 
 @pytest.mark.skipif(not BOT_ROOT.is_dir(), reason="soldium-bot sibling missing")
