@@ -226,9 +226,6 @@
       }
     }
     if (!res.ok) {
-      // #region agent log
-      fetch('http://127.0.0.1:7300/ingest/fb230002-436a-430b-84ba-58e474409a6c',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'3df71b'},body:JSON.stringify({sessionId:'3df71b',runId:'pre-fix',hypothesisId:'C',location:'catalog_core_ui.js:json',message:'fetch not ok',data:{url:String(url),method:(options&&options.method)||'GET',status:res.status,statusText:res.statusText,bodyPreview:String(rawText||'').slice(0,800),parsedDetail:data&&data.detail,reqBodyPreview:options&&options.body?String(options.body).slice(0,400):null},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
       throw new Error(httpErrorMessage(data, res, rawText));
     }
     return data;
@@ -1950,9 +1947,6 @@
                 </div>
               </div>`,
             onSubmit: async () => {
-              // #region agent log
-              fetch('http://127.0.0.1:7300/ingest/fb230002-436a-430b-84ba-58e474409a6c',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'3df71b'},body:JSON.stringify({sessionId:'3df71b',runId:'pre-fix',hypothesisId:'D',location:'catalog_core_ui.js:confirmReplace',message:'confirm replace submit',data:{serviceId,provider_slug,provider_account_key,external_service_id},timestamp:Date.now()})}).catch(()=>{});
-              // #endregion
               const result = await json(
                 `${API}/services/${encodeURIComponent(serviceId)}/execution-source`,
                 {
@@ -1964,9 +1958,6 @@
                   }),
                 }
               );
-              // #region agent log
-              fetch('http://127.0.0.1:7300/ingest/fb230002-436a-430b-84ba-58e474409a6c',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'3df71b'},body:JSON.stringify({sessionId:'3df71b',runId:'pre-fix',hypothesisId:'A',location:'catalog_core_ui.js:confirmReplace',message:'confirm replace HTTP 200',data:{serviceId,external_service_id,ok:!!(result&&result.ok),message:result&&result.message,wt:result&&result.legacy_write_through&&result.legacy_write_through.outcome},timestamp:Date.now()})}).catch(()=>{});
-              // #endregion
               alertBox(result.message || "تم تغيير مصدر التنفيذ");
               // Critical: close confirm BEFORE afterSave. Otherwise openModal's
               // submit handler runs `closeModal()` after onSubmit returns and
@@ -1978,9 +1969,6 @@
                 if (typeof afterSave === "function") await afterSave();
                 else await load();
               } catch (refreshErr) {
-                // #region agent log
-                fetch('http://127.0.0.1:7300/ingest/fb230002-436a-430b-84ba-58e474409a6c',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'3df71b'},body:JSON.stringify({sessionId:'3df71b',runId:'pre-fix',hypothesisId:'A',location:'catalog_core_ui.js:afterSave',message:'afterSave failed after successful replace',data:{serviceId,err:String(refreshErr&&refreshErr.message||refreshErr)},timestamp:Date.now()})}).catch(()=>{});
-                // #endregion
                 alertBox(
                   "تم تغيير مصدر التنفيذ، لكن تعذر تحديث الشاشة: " +
                     ((refreshErr && refreshErr.message) || "خطأ غير معروف"),
